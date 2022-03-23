@@ -1,4 +1,5 @@
 mod parse;
+mod request;
 mod stdio;
 
 use std::collections::HashMap;
@@ -20,6 +21,8 @@ use serde_json::json;
 use serde_json::Value;
 
 pub use stdio::stdio_transport;
+
+pub use request::*;
 
 pub fn stdio() -> (Sender<Value>, Receiver<Value>) {
     let stdout = stdout();
@@ -121,6 +124,7 @@ impl RpcHandler {
         }
     }
 
+    // TODO replace params with a generic Notification
     pub fn send_rpc_notification(&self, method: &str, params: &Value) {
         if let Err(_e) = self.sender.send(json!({
             "method": method,
@@ -128,10 +132,11 @@ impl RpcHandler {
         })) {}
     }
 
+    // TODO: don't take RpcRequestParams, take a generic Request param
     fn send_rpc_request_common(
         &self,
         method: &str,
-        params: &Value,
+        params: RpcRequestParams,
         rh: ResponseHandler,
     ) {
         let id = self.id.fetch_add(1, Ordering::Relaxed);
@@ -139,11 +144,14 @@ impl RpcHandler {
             let mut pending = self.pending.lock();
             pending.insert(id, rh);
         }
-        if let Err(_e) = self.sender.send(json!({
-            "id": id,
-            "method": method,
-            "params": params,
-        })) {
+        if let Err(_e) = self.sender.send(
+            serde_json::to_value(&RpcRequestObject {
+                id,
+                method: method.to_string(),
+                params,
+            })
+            .unwrap(),
+        ) {
             let mut pending = self.pending.lock();
             if let Some(rh) = pending.remove(&id) {
                 rh.invoke(Err(json!("io error")));
@@ -154,7 +162,7 @@ impl RpcHandler {
     pub fn send_rpc_request(
         &self,
         method: &str,
-        params: &Value,
+        params: RpcRequestParams,
     ) -> Result<Value, Value> {
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.send_rpc_request_common(method, params, ResponseHandler::Chan(tx));
@@ -164,7 +172,7 @@ impl RpcHandler {
     pub fn send_rpc_request_async(
         &self,
         method: &str,
-        params: &Value,
+        params: RpcRequestParams,
         f: Box<dyn Callback>,
     ) {
         self.send_rpc_request_common(method, params, ResponseHandler::Callback(f));

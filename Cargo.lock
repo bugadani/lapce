@@ -1970,6 +1970,7 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "jsonrpc-lite",
+ "lsp-types",
  "parking_lot",
  "serde 1.0.130",
  "serde_json",

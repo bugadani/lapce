@@ -19,9 +19,9 @@ use lapce_proxy::dispatch::FileNodeItem;
 use lapce_proxy::dispatch::{DiffInfo, Dispatcher};
 use lapce_proxy::plugin::PluginDescription;
 use lapce_proxy::terminal::TermId;
-use lapce_rpc::RpcHandler;
 use lapce_rpc::{stdio_transport, Callback};
 use lapce_rpc::{ControlFlow, Handler};
+use lapce_rpc::{RpcHandler, RpcRequestParams};
 use lsp_types::CompletionItem;
 use lsp_types::Position;
 use lsp_types::ProgressParams;
@@ -409,7 +409,10 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "buffer_head",
-            &json!({ "buffer_id": buffer_id, "path": path, }),
+            RpcRequestParams::BufferHead {
+                buffer_id: buffer_id.0,
+                path,
+            },
             f,
         );
     }
@@ -417,7 +420,7 @@ impl LapceProxy {
     pub fn global_search(&self, pattern: String, f: Box<dyn Callback>) {
         self.rpc.send_rpc_request_async(
             "global_search",
-            &json!({ "pattern": pattern }),
+            RpcRequestParams::GlobalSearch { pattern },
             f,
         );
     }
@@ -430,7 +433,10 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "new_buffer",
-            &json!({ "buffer_id": buffer_id, "path": path }),
+            RpcRequestParams::NewBuffer {
+                buffer_id: buffer_id.0,
+                path,
+            },
             f,
         );
     }
@@ -449,10 +455,10 @@ impl LapceProxy {
     pub fn save(&self, rev: u64, buffer_id: BufferId, f: Box<dyn Callback>) {
         self.rpc.send_rpc_request_async(
             "save",
-            &json!({
-                "rev": rev,
-                "buffer_id": buffer_id,
-            }),
+            RpcRequestParams::Save {
+                rev,
+                buffer_id: buffer_id.0,
+            },
             f,
         );
     }
@@ -466,11 +472,11 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "get_completion",
-            &json!({
-                "request_id": request_id,
-                "buffer_id": buffer_id,
-                "position": position,
-            }),
+            RpcRequestParams::GetCompletion {
+                request_id: request_id as u64,
+                buffer_id: buffer_id.0,
+                position,
+            },
             f,
         );
     }
@@ -483,10 +489,10 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "completion_resolve",
-            &json!({
-                "buffer_id": buffer_id,
-                "completion_item": completion_item,
-            }),
+            RpcRequestParams::CompletionResolve {
+                buffer_id: buffer_id.0,
+                completion_item,
+            },
             f,
         );
     }
@@ -499,10 +505,10 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "get_signature",
-            &json!({
-                "buffer_id": buffer_id,
-                "position": position,
-            }),
+            RpcRequestParams::GetSignature {
+                buffer_id: buffer_id.0,
+                position,
+            },
             f,
         );
     }
@@ -515,10 +521,10 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "get_references",
-            &json!({
-                "buffer_id": buffer_id,
-                "position": position,
-            }),
+            RpcRequestParams::GetReferences {
+                buffer_id: buffer_id.0,
+                position,
+            },
             f,
         );
     }
@@ -526,9 +532,9 @@ impl LapceProxy {
     pub fn get_files(&self, f: Box<dyn Callback>) {
         self.rpc.send_rpc_request_async(
             "get_files",
-            &json!({
-                "path": "path",
-            }),
+            RpcRequestParams::GetFiles {
+                path: PathBuf::from("path"),
+            },
             f,
         );
     }
@@ -536,9 +542,9 @@ impl LapceProxy {
     pub fn read_dir(&self, path: &Path, f: Box<dyn Callback>) {
         self.rpc.send_rpc_request_async(
             "read_dir",
-            &json!({
-                "path": path,
-            }),
+            RpcRequestParams::ReadDir {
+                path: path.to_owned(),
+            },
             f,
         );
     }
@@ -552,11 +558,11 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "get_definition",
-            &json!({
-                "request_id": request_id,
-                "buffer_id": buffer_id,
-                "position": position,
-            }),
+            RpcRequestParams::GetDefinition {
+                request_id: request_id as u64,
+                buffer_id: buffer_id.0,
+                position,
+            },
             f,
         );
     }
@@ -564,9 +570,9 @@ impl LapceProxy {
     pub fn get_document_symbols(&self, buffer_id: BufferId, f: Box<dyn Callback>) {
         self.rpc.send_rpc_request_async(
             "get_document_symbols",
-            &json!({
-                "buffer_id": buffer_id,
-            }),
+            RpcRequestParams::GetDocumentSymbols {
+                buffer_id: buffer_id.0,
+            },
             f,
         );
     }
@@ -579,10 +585,10 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "get_code_actions",
-            &json!({
-                "buffer_id": buffer_id,
-                "position": position,
-            }),
+            RpcRequestParams::GetCodeActions {
+                buffer_id: buffer_id.0,
+                position,
+            },
             f,
         );
     }
@@ -594,9 +600,9 @@ impl LapceProxy {
     ) {
         self.rpc.send_rpc_request_async(
             "get_document_formatting",
-            &json!({
-                "buffer_id": buffer_id,
-            }),
+            RpcRequestParams::GetDocumentFormatting {
+                buffer_id: buffer_id.0,
+            },
             f,
         );
     }
