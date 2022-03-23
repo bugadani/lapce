@@ -5,6 +5,7 @@ use druid::{Point, Rect, Selector, Size, WidgetId, WindowId};
 use indexmap::IndexMap;
 use lapce_core::{style::Style, syntax::Syntax};
 use lapce_proxy::{
+    buffer::BufferId,
     dispatch::{DiffInfo, FileNodeItem},
     plugin::PluginDescription,
     terminal::TermId,
@@ -19,7 +20,6 @@ use strum_macros::{Display, EnumIter, EnumMessage, EnumString};
 use xi_rope::{spans::Spans, Rope};
 
 use crate::{
-    buffer::BufferId,
     buffer::DiffLines,
     data::{EditorTabChild, SplitContent},
     editor::EditorLocationNew,

@@ -23,9 +23,8 @@ use mio::{
     Events, PollOpt, Ready,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
-use crate::dispatch::Dispatcher;
+use crate::{dispatch::Dispatcher, types::AppNotification};
 
 const READ_BUFFER_SIZE: usize = 0x10_0000;
 
@@ -142,10 +141,9 @@ impl Terminal {
                             self.pty.next_child_event()
                         {
                             dispatcher.send_notification(
-                                "close_terminal",
-                                json!({
-                                    "term_id": self.term_id,
-                                }),
+                                AppNotification::CloseTerminal {
+                                    term_id: self.term_id,
+                                },
                             );
                             break 'event_loop;
                         }
@@ -164,11 +162,10 @@ impl Terminal {
                             match self.pty.reader().read(&mut buf) {
                                 Ok(n) => {
                                     dispatcher.send_notification(
-                                        "update_terminal",
-                                        json!({
-                                            "term_id": self.term_id,
-                                            "content": base64::encode(&buf[..n]),
-                                        }),
+                                        AppNotification::UpdateTerminal {
+                                            term_id: self.term_id,
+                                            content: base64::encode(&buf[..n]),
+                                        },
                                     );
                                 }
                                 Err(_e) => (),

@@ -78,6 +78,16 @@ pub trait Handler {
     fn handle_request(&mut self, rpc: Self::Request) -> Result<Value, Value>;
 }
 
+pub trait RpcMessage {
+    type Notification;
+    type Request;
+
+    fn is_response(&self) -> bool;
+    fn get_id(&self) -> Option<u64>;
+    fn into_response(self) -> Result<Result<Value, Value>, String>;
+    fn into_rpc(self) -> Result<Call<Self::Notification, Self::Request>>;
+}
+
 #[derive(Clone)]
 pub struct RpcHandler {
     sender: Sender<Value>,
@@ -94,12 +104,12 @@ impl RpcHandler {
         }
     }
 
-    pub fn mainloop<H>(&mut self, receiver: Receiver<Value>, handler: &mut H)
+    pub fn mainloop<H, M>(&mut self, receiver: Receiver<M>, handler: &mut H)
     where
         H: Handler,
+        M: RpcMessage<Notification = H::Notification, Request = H::Request>,
     {
-        for msg in receiver {
-            let rpc: RpcObject = msg.into();
+        for rpc in receiver {
             if rpc.is_response() {
                 let id = rpc.get_id().unwrap();
                 match rpc.into_response() {
@@ -111,7 +121,7 @@ impl RpcHandler {
                     }
                 }
             } else {
-                match rpc.into_rpc::<H::Notification, H::Request>() {
+                match rpc.into_rpc() {
                     Ok(Call::Request(id, request)) => {
                         let result = handler.handle_request(request);
                         self.respond(id, result);

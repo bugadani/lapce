@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use xi_rope::{interval::IntervalBounds, rope::Rope, RopeDelta};
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct BufferId(pub usize);
+pub struct BufferId(pub u64);
 
 pub struct Buffer {
     pub language_id: String,

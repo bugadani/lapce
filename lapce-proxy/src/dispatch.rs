@@ -2,6 +2,7 @@ use crate::buffer::{get_mod_time, Buffer, BufferId};
 use crate::lsp::LspCatalog;
 use crate::plugin::{PluginCatalog, PluginDescription};
 use crate::terminal::{TermId, Terminal};
+use crate::types::{AppMessage, AppNotification};
 use alacritty_terminal::event_loop::Msg;
 use alacritty_terminal::term::SizeInfo;
 use anyhow::{anyhow, Context, Result};
@@ -30,7 +31,7 @@ use xi_rope::RopeDelta;
 
 #[derive(Clone)]
 pub struct Dispatcher {
-    pub sender: Arc<Sender<Value>>,
+    pub sender: Arc<Sender<AppMessage>>,
     pub git_sender: Sender<(BufferId, u64)>,
     pub workspace: Arc<Mutex<Option<PathBuf>>>,
     pub buffers: Arc<Mutex<HashMap<BufferId, Buffer>>>,
@@ -50,12 +51,14 @@ impl notify::EventHandler for Dispatcher {
         if let Ok(event) = event {
             for path in event.paths.iter() {
                 if let Some(path) = path.to_str() {
-                    if let Some(buffer_id) = self.open_files.lock().get(path) {
+                    if let Some(buffer_id) =
+                        self.open_files.lock().get(path).cloned()
+                    {
                         match event.kind {
                             notify::EventKind::Create(_)
                             | notify::EventKind::Modify(_) => {
                                 if let Some(buffer) =
-                                    self.buffers.lock().get_mut(buffer_id)
+                                    self.buffers.lock().get_mut(&buffer_id)
                                 {
                                     if get_mod_time(&buffer.path) == buffer.mod_time
                                     {
@@ -73,12 +76,11 @@ impl notify::EventHandler for Dispatcher {
                                             buffer.rev,
                                         );
                                         self.send_notification(
-                                            "reload_buffer",
-                                            json!({
-                                                "buffer_id": buffer_id,
-                                                "rev": buffer.rev,
-                                                "new_content": buffer.get_document(),
-                                            }),
+                                            AppNotification::ReloadBuffer {
+                                                buffer_id,
+                                                new_content: buffer.get_document(),
+                                                rev: buffer.rev,
+                                            },
                                         );
                                     }
                                 }
@@ -95,12 +97,9 @@ impl notify::EventHandler for Dispatcher {
                     if let Some(workspace) = self.workspace.lock().clone() {
                         if let Some(diff) = git_diff_new(&workspace) {
                             if diff != *self.last_diff.lock() {
-                                self.send_notification(
-                                    "diff_info",
-                                    json!({
-                                        "diff": diff,
-                                    }),
-                                );
+                                self.send_notification(AppNotification::DiffInfo {
+                                    diff: diff.clone(),
+                                });
                                 *self.last_diff.lock() = diff;
                             }
                         }
@@ -329,7 +328,7 @@ impl FileNodeItem {
 }
 
 impl Dispatcher {
-    pub fn new(sender: Sender<Value>) -> Dispatcher {
+    pub fn new(sender: Sender<AppMessage>) -> Dispatcher {
         let plugins = PluginCatalog::new();
         let (git_sender, git_receiver) = unbounded();
         let dispatcher = Dispatcher {
@@ -352,12 +351,8 @@ impl Dispatcher {
         thread::spawn(move || {
             local_dispatcher.plugins.lock().reload();
             let plugins = { local_dispatcher.plugins.lock().items.clone() };
-            local_dispatcher.send_notification(
-                "installed_plugins",
-                json!({
-                    "plugins": plugins,
-                }),
-            );
+            local_dispatcher
+                .send_notification(AppNotification::InstalledPlugins { plugins });
             local_dispatcher
                 .plugins
                 .lock()
@@ -368,17 +363,13 @@ impl Dispatcher {
         thread::spawn(move || {
             if let Some(path) = BaseDirs::new().map(|d| PathBuf::from(d.home_dir()))
             {
-                local_dispatcher.send_notification(
-                    "home_dir",
-                    json!({
-                        "path": path,
-                    }),
-                );
+                local_dispatcher
+                    .send_notification(AppNotification::HomeDir { path });
             }
         });
 
         dispatcher.start_update_process(git_receiver);
-        dispatcher.send_notification("proxy_connected", json!({}));
+        dispatcher.send_notification(AppNotification::ProxyConnected {});
 
         dispatcher
     }
@@ -474,14 +465,16 @@ impl Dispatcher {
                 })
             }
         }
-        let _ = self.sender.send(resp);
+        let _ = self.sender.send(AppMessage::Response(resp));
     }
 
-    pub fn send_notification(&self, method: &str, params: Value) {
-        let _ = self.sender.send(json!({
-            "method": method,
-            "params": params,
-        }));
+    pub fn respond_result(&self, id: RequestId, result: Value) {
+        let resp = json!({ "id": id, "result": result });
+        let _ = self.sender.send(AppMessage::Response(resp));
+    }
+
+    pub fn send_notification(&self, notification: AppNotification) {
+        let _ = self.sender.send(AppMessage::Notification(notification));
     }
 
     fn handle_notification(&self, rpc: Notification) {
@@ -495,12 +488,9 @@ impl Dispatcher {
                     .unwrap()
                     .watch(&workspace, notify::RecursiveMode::Recursive);
                 if let Some(diff) = git_diff_new(&workspace) {
-                    self.send_notification(
-                        "diff_info",
-                        json!({
-                            "diff": diff,
-                        }),
-                    );
+                    self.send_notification(AppNotification::DiffInfo {
+                        diff: diff.clone(),
+                    });
                     *self.last_diff.lock() = diff;
                 }
             }
@@ -526,10 +516,7 @@ impl Dispatcher {
                     }
                     let plugins = { dispatcher.plugins.lock().items.clone() };
                     dispatcher.send_notification(
-                        "installed_plugins",
-                        json!({
-                            "plugins": plugins,
-                        }),
+                        AppNotification::InstalledPlugins { plugins },
                     );
                 });
             }
@@ -606,10 +593,7 @@ impl Dispatcher {
                 self.buffers.lock().insert(buffer_id, buffer);
                 let _ = self.git_sender.send((buffer_id, 0));
                 let resp = NewBufferResponse { content };
-                let _ = self.sender.send(json!({
-                    "id": id,
-                    "result": resp,
-                }));
+                self.respond_result(id, serde_json::to_value(&resp).unwrap());
             }
             #[allow(unused_variables)]
             Request::BufferHead { buffer_id, path } => {
@@ -620,10 +604,10 @@ impl Dispatcher {
                             id: "head".to_string(),
                             content,
                         };
-                        let _ = self.sender.send(json!({
-                            "id": id,
-                            "result": resp,
-                        }));
+                        self.respond_result(
+                            id,
+                            serde_json::to_value(&resp).unwrap(),
+                        );
                     }
                 }
             }

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io::BufReader;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -13,19 +12,17 @@ use crossbeam_channel::Sender;
 use druid::Target;
 use druid::{ExtEventSink, WidgetId};
 use flate2::read::GzDecoder;
-use lapce_core::style::LineStyle;
+use lapce_proxy::buffer::BufferId;
+use lapce_proxy::dispatch::Dispatcher;
 use lapce_proxy::dispatch::FileDiff;
-use lapce_proxy::dispatch::FileNodeItem;
-use lapce_proxy::dispatch::{DiffInfo, Dispatcher};
 use lapce_proxy::plugin::PluginDescription;
 use lapce_proxy::terminal::TermId;
+use lapce_proxy::types::{AppNotification, AppRequest};
 use lapce_rpc::{stdio_transport, Callback};
 use lapce_rpc::{ControlFlow, Handler};
 use lapce_rpc::{RpcHandler, RpcRequestParams};
 use lsp_types::CompletionItem;
 use lsp_types::Position;
-use lsp_types::ProgressParams;
-use lsp_types::PublishDiagnosticsParams;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -34,11 +31,11 @@ use xi_rope::spans::SpansBuilder;
 use xi_rope::{Interval, RopeDelta};
 
 use crate::command::LapceUICommand;
+use crate::command::LAPCE_UI_COMMAND;
 use crate::config::Config;
 use crate::state::LapceWorkspace;
 use crate::state::LapceWorkspaceType;
 use crate::terminal::RawTerminal;
-use crate::{buffer::BufferId, command::LAPCE_UI_COMMAND};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -65,12 +62,12 @@ pub struct LapceProxy {
 }
 
 impl Handler for LapceProxy {
-    type Notification = Notification;
-    type Request = Request;
+    type Notification = AppNotification;
+    type Request = AppRequest;
 
     fn handle_notification(&mut self, rpc: Self::Notification) -> ControlFlow {
         match rpc {
-            Notification::SemanticStyles {
+            AppNotification::SemanticStyles {
                 rev,
                 buffer_id,
                 path,
@@ -100,7 +97,7 @@ impl Handler for LapceProxy {
                     );
                 });
             }
-            Notification::ReloadBuffer {
+            AppNotification::ReloadBuffer {
                 buffer_id,
                 new_content,
                 rev,
@@ -111,21 +108,21 @@ impl Handler for LapceProxy {
                     Target::Widget(self.tab_id),
                 );
             }
-            Notification::PublishDiagnostics { diagnostics } => {
+            AppNotification::PublishDiagnostics { diagnostics } => {
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
                     LapceUICommand::PublishDiagnostics(diagnostics),
                     Target::Widget(self.tab_id),
                 );
             }
-            Notification::WorkDoneProgress { progress } => {
+            AppNotification::WorkDoneProgress { progress } => {
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
                     LapceUICommand::WorkDoneProgress(progress),
                     Target::Widget(self.tab_id),
                 );
             }
-            Notification::InstalledPlugins { plugins } => {
+            AppNotification::InstalledPlugins { plugins } => {
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
                     LapceUICommand::UpdateInstalledPlugins(plugins),
@@ -133,22 +130,22 @@ impl Handler for LapceProxy {
                 );
             }
             #[allow(unused_variables)]
-            Notification::ListDir { items } => {}
+            AppNotification::ListDir { items } => {}
             #[allow(unused_variables)]
-            Notification::DiffFiles { files } => {}
-            Notification::DiffInfo { diff } => {
+            AppNotification::DiffFiles { files } => {}
+            AppNotification::DiffInfo { diff } => {
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
                     LapceUICommand::UpdateDiffInfo(diff),
                     Target::Widget(self.tab_id),
                 );
             }
-            Notification::UpdateTerminal { term_id, content } => {
+            AppNotification::UpdateTerminal { term_id, content } => {
                 let _ = self
                     .term_tx
                     .send((term_id, TermEvent::UpdateContent(content)));
             }
-            Notification::CloseTerminal { term_id } => {
+            AppNotification::CloseTerminal { term_id } => {
                 let _ = self.term_tx.send((term_id, TermEvent::CloseTerminal));
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
@@ -156,14 +153,14 @@ impl Handler for LapceProxy {
                     Target::Widget(self.tab_id),
                 );
             }
-            Notification::ProxyConnected {} => {
+            AppNotification::ProxyConnected {} => {
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
                     LapceUICommand::ProxyUpdateStatus(ProxyStatus::Connected),
                     Target::Widget(self.tab_id),
                 );
             }
-            Notification::HomeDir { path } => {
+            AppNotification::HomeDir { path } => {
                 let _ = self.event_sink.submit_command(
                     LAPCE_UI_COMMAND,
                     LapceUICommand::HomeDir(path),
@@ -633,56 +630,6 @@ pub enum CursorShape {
     /// Invisible cursor.
     Hidden,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "method", content = "params")]
-pub enum Notification {
-    ProxyConnected {},
-    SemanticStyles {
-        rev: u64,
-        buffer_id: BufferId,
-        path: PathBuf,
-        len: usize,
-        styles: Vec<LineStyle>,
-    },
-    ReloadBuffer {
-        buffer_id: BufferId,
-        new_content: String,
-        rev: u64,
-    },
-    PublishDiagnostics {
-        diagnostics: PublishDiagnosticsParams,
-    },
-    WorkDoneProgress {
-        progress: ProgressParams,
-    },
-    HomeDir {
-        path: PathBuf,
-    },
-    InstalledPlugins {
-        plugins: HashMap<String, PluginDescription>,
-    },
-    ListDir {
-        items: Vec<FileNodeItem>,
-    },
-    DiffFiles {
-        files: Vec<PathBuf>,
-    },
-    DiffInfo {
-        diff: DiffInfo,
-    },
-    UpdateTerminal {
-        term_id: TermId,
-        content: String,
-    },
-    CloseTerminal {
-        term_id: TermId,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Request {}
 
 pub struct ProxyHandlerNew {
     #[allow(dead_code)]

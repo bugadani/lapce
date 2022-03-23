@@ -19,9 +19,9 @@ use lsp_types::*;
 use parking_lot::Mutex;
 use serde_json::{json, to_value, Value};
 
-use crate::buffer::Buffer;
 use crate::buffer::BufferId;
 use crate::dispatch::Dispatcher;
+use crate::{buffer::Buffer, types::AppNotification};
 
 pub type Callback = Box<dyn Callable>;
 const HEADER_CONTENT_LENGTH: &str = "content-length";
@@ -138,15 +138,14 @@ impl LspCatalog {
                         format_semantic_styles(buffer, semantic_tokens_provider, res)
                     {
                         local_dispatcher.send_notification(
-                            "semantic_styles",
-                            json!({
-                                "rev": rev,
-                                "buffer_id": buffer_id,
-                                "path": path,
-                                "styles": styles,
-                                "len": len,
-                            }),
-                        )
+                            AppNotification::SemanticStyles {
+                                rev,
+                                buffer_id,
+                                path,
+                                len,
+                                styles,
+                            },
+                        );
                     }
                 }
             });
@@ -187,17 +186,7 @@ impl LspCatalog {
         if let Some(client) = self.clients.get(&buffer.language_id) {
             let uri = client.get_uri(buffer);
             client.request_completion(uri, position, move |lsp_client, result| {
-                let mut resp = json!({ "id": id });
-                match result {
-                    Ok(v) => resp["result"] = v,
-                    Err(e) => {
-                        resp["error"] = json!({
-                            "code": 0,
-                            "message": format!("{}",e),
-                        })
-                    }
-                }
-                let _ = lsp_client.dispatcher.sender.send(resp);
+                lsp_client.dispatcher.respond(id, result);
             });
         }
     }
@@ -210,17 +199,7 @@ impl LspCatalog {
     ) {
         if let Some(client) = self.clients.get(&buffer.language_id) {
             client.completion_resolve(completion_item, move |lsp_client, result| {
-                let mut resp = json!({ "id": id });
-                match result {
-                    Ok(v) => resp["result"] = v,
-                    Err(e) => {
-                        resp["error"] = json!({
-                            "code": 0,
-                            "message": format!("{}",e),
-                        })
-                    }
-                }
-                let _ = lsp_client.dispatcher.sender.send(resp);
+                lsp_client.dispatcher.respond(id, result);
             });
         }
     }
@@ -229,17 +208,7 @@ impl LspCatalog {
         if let Some(client) = self.clients.get(&buffer.language_id) {
             let uri = client.get_uri(buffer);
             client.request_signature(uri, position, move |lsp_client, result| {
-                let mut resp = json!({ "id": id });
-                match result {
-                    Ok(v) => resp["result"] = v,
-                    Err(e) => {
-                        resp["error"] = json!({
-                            "code": 0,
-                            "message": format!("{}",e),
-                        })
-                    }
-                }
-                let _ = lsp_client.dispatcher.sender.send(resp);
+                lsp_client.dispatcher.respond(id, result);
             });
         }
     }
@@ -253,17 +222,7 @@ impl LspCatalog {
         if let Some(client) = self.clients.get(&buffer.language_id) {
             let uri = client.get_uri(buffer);
             client.request_references(uri, position, move |lsp_client, result| {
-                let mut resp = json!({ "id": id });
-                match result {
-                    Ok(v) => resp["result"] = v,
-                    Err(e) => {
-                        resp["error"] = json!({
-                            "code": 0,
-                            "message": format!("{}",e),
-                        })
-                    }
-                }
-                let _ = lsp_client.dispatcher.sender.send(resp);
+                lsp_client.dispatcher.respond(id, result);
             });
         }
     }
@@ -281,17 +240,7 @@ impl LspCatalog {
                 end: position,
             };
             client.request_code_actions(uri, range, move |lsp_client, result| {
-                let mut resp = json!({ "id": id });
-                match result {
-                    Ok(v) => resp["result"] = v,
-                    Err(e) => {
-                        resp["error"] = json!({
-                            "code": 0,
-                            "message": format!("{}",e),
-                        })
-                    }
-                }
-                let _ = lsp_client.dispatcher.sender.send(resp);
+                lsp_client.dispatcher.respond(id, result);
             });
         }
     }
@@ -307,17 +256,7 @@ impl LspCatalog {
         if let Some(client) = self.clients.get(&buffer.language_id) {
             let uri = client.get_uri(buffer);
             client.request_definition(uri, position, move |lsp_client, result| {
-                let mut resp = json!({ "id": id });
-                match result {
-                    Ok(v) => resp["result"] = v,
-                    Err(e) => {
-                        resp["error"] = json!({
-                            "code": 0,
-                            "message": format!("{}",e),
-                        })
-                    }
-                }
-                let _ = lsp_client.dispatcher.sender.send(resp);
+                lsp_client.dispatcher.respond(id, result);
             });
         }
     }
@@ -476,18 +415,24 @@ impl LspClient {
         match method {
             "textDocument/publishDiagnostics" => {
                 self.dispatcher.send_notification(
-                    "publish_diagnostics",
-                    json!({
-                        "diagnostics": params,
-                    }),
+                    AppNotification::PublishDiagnostics {
+                        // TODO: do NOT do this
+                        diagnostics: serde_json::from_value(
+                            serde_json::to_value(params).unwrap(),
+                        )
+                        .unwrap(),
+                    },
                 );
             }
             "$/progress" => {
                 self.dispatcher.send_notification(
-                    "work_done_progress",
-                    json!({
-                        "progress": params,
-                    }),
+                    AppNotification::WorkDoneProgress {
+                        // TODO: do NOT do this
+                        progress: serde_json::from_value(
+                            serde_json::to_value(params).unwrap(),
+                        )
+                        .unwrap(),
+                    },
                 );
             }
             _ => (),

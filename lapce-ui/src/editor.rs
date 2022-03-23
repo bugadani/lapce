@@ -12,7 +12,7 @@ use druid::{
     UpdateCtx, Vec2, Widget, WidgetExt, WidgetId, WidgetPod,
 };
 use lapce_data::{
-    buffer::{matching_pair_direction, BufferContent, BufferId, LocalBufferKind},
+    buffer::{matching_pair_direction, BufferContent, LocalBufferKind},
     command::{
         CommandTarget, EnsureVisiblePosition, LapceCommand, LapceCommandNew,
         LapceUICommand, LapceWorkbenchCommand, LAPCE_NEW_COMMAND, LAPCE_UI_COMMAND,
@@ -30,12 +30,12 @@ use lapce_data::{
     split::{SplitDirection, SplitMoveDirection},
     state::{Mode, VisualMode},
 };
+use lapce_proxy::buffer::BufferId;
 use lsp_types::{DocumentChanges, TextEdit, Url, WorkspaceEdit};
 use strum::EnumMessage;
 
 use crate::{
     scroll::{LapceIdentityWrapper, LapcePadding, LapceScrollNew},
-    split::LapceSplitNew,
     svg::{file_svg_new, get_svg},
     tab::LapceIcon,
 };

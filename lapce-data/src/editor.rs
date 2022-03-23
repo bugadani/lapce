@@ -14,15 +14,14 @@ use crate::data::{
 };
 use crate::state::LapceWorkspace;
 use crate::svg::get_svg;
+use crate::{buffer::WordProperty, movement::CursorMode};
 use crate::{
-    buffer::BufferId,
     command::{LapceCommand, LapceUICommand, LAPCE_UI_COMMAND},
     movement::{ColPosition, Movement, SelRegion, Selection},
     split::SplitMoveDirection,
     state::Mode,
     state::VisualMode,
 };
-use crate::{buffer::WordProperty, movement::CursorMode};
 use crate::{find::Find, split::SplitDirection};
 use crate::{keypress::KeyPressFocus, movement::Cursor};
 use crate::{movement::InsertDrift, panel::PanelPosition};
@@ -41,6 +40,7 @@ use druid::{
 };
 use druid::{Application, ExtEventSink, MouseEvent};
 use lapce_core::syntax::Syntax;
+use lapce_proxy::buffer::BufferId;
 use lsp_types::CompletionTextEdit;
 use lsp_types::{
     CodeActionResponse, CompletionItem, DiagnosticSeverity, GotoDefinitionResponse,
