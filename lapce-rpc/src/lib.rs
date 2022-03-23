@@ -17,6 +17,7 @@ pub use parse::Call;
 pub use parse::RequestId;
 pub use parse::RpcObject;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
 
@@ -24,7 +25,11 @@ pub use stdio::stdio_transport;
 
 pub use request::*;
 
-pub fn stdio() -> (Sender<Value>, Receiver<Value>) {
+pub fn stdio<REQ, RSP>() -> (Sender<REQ>, Receiver<RSP>)
+where
+    REQ: 'static + Serialize + Send,
+    RSP: 'static + DeserializeOwned + Send + Sync,
+{
     let stdout = stdout();
     let stdin = BufReader::new(stdin());
     let (writer_sender, writer_receiver) = crossbeam_channel::unbounded();
