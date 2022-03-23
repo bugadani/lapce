@@ -412,31 +412,27 @@ impl LspClient {
     }
 
     pub fn handle_notification(&self, method: &str, params: Params) {
-        match method {
+        let notification = match method {
             "textDocument/publishDiagnostics" => {
-                self.dispatcher.send_notification(
-                    AppNotification::PublishDiagnostics {
-                        // TODO: do NOT do this
-                        diagnostics: serde_json::from_value(
-                            serde_json::to_value(params).unwrap(),
-                        )
-                        .unwrap(),
-                    },
-                );
+                // TODO: do NOT do this
+                let diagnostics = serde_json::to_value(params)
+                    .and_then(serde_json::from_value)
+                    .unwrap();
+
+                AppNotification::PublishDiagnostics { diagnostics }
             }
             "$/progress" => {
-                self.dispatcher.send_notification(
-                    AppNotification::WorkDoneProgress {
-                        // TODO: do NOT do this
-                        progress: serde_json::from_value(
-                            serde_json::to_value(params).unwrap(),
-                        )
-                        .unwrap(),
-                    },
-                );
+                // TODO: do NOT do this
+                let progress = serde_json::to_value(params)
+                    .and_then(serde_json::from_value)
+                    .unwrap();
+
+                AppNotification::WorkDoneProgress { progress }
             }
-            _ => (),
-        }
+            _ => return,
+        };
+
+        self.dispatcher.send_notification(notification);
     }
 
     pub fn handle_response(&self, id: u64, result: Result<Value>) {
