@@ -72,14 +72,14 @@ impl notify::EventHandler for Dispatcher {
                                             },
                                             buffer.rev,
                                         );
-                                        let _ = self.sender.send(json!({
-                                            "method": "reload_buffer",
-                                            "params": {
+                                        self.send_notification(
+                                            "reload_buffer",
+                                            json!({
                                                 "buffer_id": buffer_id,
                                                 "rev": buffer.rev,
                                                 "new_content": buffer.get_document(),
-                                            },
-                                        }));
+                                            }),
+                                        );
                                     }
                                 }
                             }
