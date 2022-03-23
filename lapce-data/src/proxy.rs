@@ -332,7 +332,7 @@ impl LapceProxy {
     pub fn initialize(&self, workspace: PathBuf) {
         self.rpc.send_rpc_notification(
             "initialize",
-            &json!({
+            json!({
                 "workspace": workspace,
             }),
         )
@@ -341,7 +341,7 @@ impl LapceProxy {
     pub fn terminal_close(&self, term_id: TermId) {
         self.rpc.send_rpc_notification(
             "terminal_close",
-            &json!({
+            json!({
                 "term_id": term_id,
             }),
         )
@@ -350,7 +350,7 @@ impl LapceProxy {
     pub fn terminal_resize(&self, term_id: TermId, width: usize, height: usize) {
         self.rpc.send_rpc_notification(
             "terminal_resize",
-            &json!({
+            json!({
                 "term_id": term_id,
                 "width": width,
                 "height": height,
@@ -361,7 +361,7 @@ impl LapceProxy {
     pub fn terminal_write(&self, term_id: TermId, content: &str) {
         self.rpc.send_rpc_notification(
             "terminal_write",
-            &json!({
+            json!({
                 "term_id": term_id,
                 "content": content,
             }),
@@ -378,7 +378,7 @@ impl LapceProxy {
         let _ = self.term_tx.send((term_id, TermEvent::NewTerminal(raw)));
         self.rpc.send_rpc_notification(
             "new_terminal",
-            &json!({
+            json!({
                 "term_id": term_id,
                 "cwd": cwd,
                 "shell": shell,
@@ -389,7 +389,7 @@ impl LapceProxy {
     pub fn git_commit(&self, message: &str, diffs: Vec<FileDiff>) {
         self.rpc.send_rpc_notification(
             "git_commit",
-            &json!({
+            json!({
                 "message": message,
                 "diffs": diffs,
             }),
@@ -398,7 +398,7 @@ impl LapceProxy {
 
     pub fn install_plugin(&self, plugin: &PluginDescription) {
         self.rpc
-            .send_rpc_notification("install_plugin", &json!({ "plugin": plugin }));
+            .send_rpc_notification("install_plugin", json!({ "plugin": plugin }));
     }
 
     pub fn get_buffer_head(
@@ -444,7 +444,7 @@ impl LapceProxy {
     pub fn update(&self, buffer_id: BufferId, delta: &RopeDelta, rev: u64) {
         self.rpc.send_rpc_notification(
             "update",
-            &json!({
+            json!({
                 "buffer_id": buffer_id,
                 "delta": delta,
                 "rev": rev,
@@ -608,7 +608,7 @@ impl LapceProxy {
     }
 
     pub fn stop(&self) {
-        self.rpc.send_rpc_notification("shutdown", &json!({}));
+        self.rpc.send_rpc_notification("shutdown", json!({}));
         // self.core_sender.send(json!({
         //     "method": "shutdown",
         //     "params": {},

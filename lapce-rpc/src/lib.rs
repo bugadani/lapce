@@ -125,11 +125,14 @@ impl RpcHandler {
     }
 
     // TODO replace params with a generic Notification
-    pub fn send_rpc_notification(&self, method: &str, params: &Value) {
-        if let Err(_e) = self.sender.send(json!({
-            "method": method,
-            "params": params,
-        })) {}
+    pub fn send_rpc_notification(&self, method: &str, params: Value) {
+        if let Err(_e) = self.sender.send(
+            serde_json::to_value(&RpcRequestObject::Notification {
+                method: method.to_string(),
+                params,
+            })
+            .unwrap(),
+        ) {}
     }
 
     // TODO: don't take RpcRequestParams, take a generic Request param
@@ -145,7 +148,7 @@ impl RpcHandler {
             pending.insert(id, rh);
         }
         if let Err(_e) = self.sender.send(
-            serde_json::to_value(&RpcRequestObject {
+            serde_json::to_value(&RpcRequestObject::Request {
                 id,
                 method: method.to_string(),
                 params,

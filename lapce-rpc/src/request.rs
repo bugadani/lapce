@@ -2,12 +2,20 @@ use std::path::PathBuf;
 
 use lsp_types::{CompletionItem, Position};
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Serialize)]
-pub struct RpcRequestObject {
-    pub id: u64,
-    pub method: String,
-    pub params: RpcRequestParams,
+#[serde(untagged)]
+pub enum RpcRequestObject {
+    Request {
+        id: u64,
+        method: String,
+        params: RpcRequestParams,
+    },
+    Notification {
+        method: String,
+        params: Value,
+    },
 }
 
 // TODO: move this into lapce-proxy
