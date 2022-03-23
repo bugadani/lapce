@@ -67,8 +67,8 @@ pub enum AppNotification {
 #[serde(rename_all = "snake_case")]
 pub enum AppMessage {
     Notification(AppNotification),
-    // TODO: split this into Success and Error
-    Response(Value),
+    Success { id: u64, result: Value },
+    Error { id: u64, error: Value }, // TODO: use a strongly typed Error struct
     Request,
 }
 
@@ -80,47 +80,30 @@ impl RpcMessage for AppMessage {
     type Request = AppRequest;
 
     fn is_response(&self) -> bool {
-        matches!(self, Self::Response(_))
+        matches!(self, Self::Success { .. } | Self::Error { .. })
     }
 
     fn get_id(&self) -> Option<u64> {
-        match self {
-            AppMessage::Notification(_) => None,
-            AppMessage::Response(rsp) => rsp.as_object().unwrap()["id"].as_u64(),
-            AppMessage::Request => None,
+        if let AppMessage::Success { id, .. } | AppMessage::Error { id, .. } = self {
+            Some(*id)
+        } else {
+            None
         }
     }
 
     fn into_response(self) -> Result<Result<Value, Value>, String> {
-        if let AppMessage::Response(mut resp) = self {
-            // TODO this should be split up into a success and a response type, so this check
-            // will be made meaningless
-            if resp.get("result").is_some() == resp.get("error").is_some() {
-                return Err("RPC response must contain exactly one of\
-                            'error' or 'result' fields."
-                    .into());
-            }
-            let result = resp.as_object_mut().and_then(|obj| obj.remove("result"));
-            match result {
-                Some(resp) => Ok(Ok(resp)),
-                None => {
-                    let error = resp
-                        .as_object_mut()
-                        .and_then(|obj| obj.remove("error"))
-                        .unwrap();
-                    Ok(Err(error))
-                }
-            }
-        } else {
-            todo!()
+        match self {
+            AppMessage::Success { result, .. } => Ok(Ok(result)),
+            AppMessage::Error { error, .. } => Ok(Err(error)),
+            _ => Err(String::new()),
         }
     }
 
     fn into_rpc(self) -> Result<Call<AppNotification, AppRequest>> {
         match self {
             AppMessage::Notification(not) => Ok(Call::Notification(not)),
-            AppMessage::Response(_) => Err(anyhow!("")),
             AppMessage::Request => unimplemented!(),
+            _ => Err(anyhow!("")),
         }
     }
 }

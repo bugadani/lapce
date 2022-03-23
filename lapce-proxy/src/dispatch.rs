@@ -455,22 +455,24 @@ impl Dispatcher {
     }
 
     pub fn respond(&self, id: RequestId, result: Result<Value>) {
-        let mut resp = json!({ "id": id });
         match result {
-            Ok(v) => resp["result"] = v,
+            Ok(result) => {
+                let _ = self.sender.send(AppMessage::Success { id, result });
+            }
             Err(e) => {
-                resp["error"] = json!({
-                    "code": 0,
-                    "message": format!("{}",e),
-                })
+                let _ = self.sender.send(AppMessage::Error {
+                    id,
+                    error: json!({
+                        "code": 0,
+                        "message": e.to_string(),
+                    }),
+                });
             }
         }
-        let _ = self.sender.send(AppMessage::Response(resp));
     }
 
     pub fn respond_result(&self, id: RequestId, result: Value) {
-        let resp = json!({ "id": id, "result": result });
-        let _ = self.sender.send(AppMessage::Response(resp));
+        let _ = self.sender.send(AppMessage::Success { id, result });
     }
 
     pub fn send_notification(&self, notification: AppNotification) {
