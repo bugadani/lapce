@@ -13,7 +13,6 @@ use lapce_data::{
     data::LapceTabData,
     editor::LapceEditorBufferData,
     state::LapceWorkspace,
-    
 };
 
 use crate::{
