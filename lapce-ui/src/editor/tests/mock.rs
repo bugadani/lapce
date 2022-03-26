@@ -143,3 +143,45 @@ mod test_state_tests {
         assert_eq!(text, state.to_string());
     }
 }
+
+pub struct MockEditor {}
+
+impl MockEditor {
+    fn new(initial: TestState) -> Self {
+        MockEditor {}
+    }
+
+    fn run_command(&self, command: LapceCommand) {
+        todo!()
+    }
+
+    fn run_event(&self, command: LapceCommand) {
+        todo!()
+    }
+
+    fn state(&self) -> TestState {
+        todo!()
+    }
+}
+
+pub fn test_command(command: LapceCommand, initial: &str, expectation: &str) {
+    let initial = TestState::parse(initial);
+    let expectation = TestState::parse(expectation);
+
+    let mut app = MockEditor::new(initial);
+
+    app.run_command(command);
+
+    assert_eq!(expectation, app.state());
+}
+
+pub fn test_event(command: LapceCommand, initial: &str, expectation: &str) {
+    let initial = TestState::parse(initial);
+    let expectation = TestState::parse(expectation);
+
+    let mut app = MockEditor::new(initial);
+
+    app.run_command(command);
+
+    assert_eq!(expectation, app.state());
+}
