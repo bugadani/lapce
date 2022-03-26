@@ -37,6 +37,9 @@ pub mod tab_header;
 pub mod tab_header_content;
 pub mod view;
 
+#[cfg(test)]
+mod tests;
+
 pub struct LapceUI {}
 
 #[derive(Copy, Clone)]
