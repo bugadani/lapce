@@ -221,26 +221,26 @@ impl BufferContent {
 #[derive(Clone)]
 pub struct Buffer {
     data: BufferData,
-    pub syntax: Option<Syntax>,
     pub indent_style: IndentStyle,
-    pub line_styles: Rc<RefCell<LineStyles>>,
-    pub semantic_styles: Option<Arc<Spans<Style>>>,
-    pub loaded: bool,
     pub start_to_load: Rc<RefCell<bool>>,
-    pub local: bool,
-    pub histories: im::HashMap<String, Rope>,
+
     pub history_styles: im::HashMap<String, Arc<Spans<Style>>>,
     pub history_line_styles: Rc<RefCell<HashMap<String, LineStyles>>>,
     pub history_changes: im::HashMap<String, Arc<Vec<DiffLines>>>,
-
-    pub find: Rc<RefCell<Find>>,
-    pub find_progress: Rc<RefCell<FindProgress>>,
 
     pub cursor_offset: usize,
     pub scroll_offset: Vec2,
 
     pub code_actions: im::HashMap<usize, CodeActionResponse>,
 
+    pub loaded: bool,
+    pub local: bool,
+    pub find: Rc<RefCell<Find>>,
+    pub find_progress: Rc<RefCell<FindProgress>>,
+    pub syntax: Option<Syntax>,
+    pub line_styles: Rc<RefCell<LineStyles>>,
+    pub semantic_styles: Option<Arc<Spans<Style>>>,
+    pub histories: im::HashMap<String, Rope>,
     tab_id: WidgetId,
     event_sink: ExtEventSink,
 }
