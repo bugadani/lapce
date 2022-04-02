@@ -307,7 +307,7 @@ impl BufferData {
         }
     }
 
-    pub fn edit_multiple(
+    pub fn do_edit_multiple(
         &mut self,
         edits: &[(&Selection, &str)],
         edit_type: EditType,
@@ -380,6 +380,33 @@ impl BufferData {
             inval_count: old_hard_count,
             new_count: new_hard_count,
         }
+    }
+}
+
+pub trait BufferLike {
+    fn edit_multiple(
+        &mut self,
+        edits: &[(&Selection, &str)],
+        edit_type: EditType,
+    ) -> (RopeDelta, InvalLines);
+
+    fn edit(
+        &mut self,
+        selection: &Selection,
+        content: &str,
+        edit_type: EditType,
+    ) -> (RopeDelta, InvalLines) {
+        self.edit_multiple(&[(selection, content)], edit_type)
+    }
+}
+
+impl BufferLike for BufferData {
+    fn edit_multiple(
+        &mut self,
+        edits: &[(&Selection, &str)],
+        edit_type: EditType,
+    ) -> (RopeDelta, InvalLines) {
+        self.do_edit_multiple(edits, edit_type)
     }
 }
 
