@@ -235,12 +235,12 @@ pub struct Buffer {
 
     loaded: bool,
     local: bool,
-    pub find: Rc<RefCell<Find>>,
-    pub find_progress: Rc<RefCell<FindProgress>>,
-    pub syntax: Option<Syntax>,
-    pub line_styles: Rc<RefCell<LineStyles>>,
-    pub semantic_styles: Option<Arc<Spans<Style>>>,
-    pub histories: im::HashMap<String, Rope>,
+    find: Rc<RefCell<Find>>,
+    find_progress: Rc<RefCell<FindProgress>>,
+    syntax: Option<Syntax>,
+    line_styles: Rc<RefCell<LineStyles>>,
+    semantic_styles: Option<Arc<Spans<Style>>>,
+    histories: im::HashMap<String, Rope>,
     tab_id: WidgetId,
     event_sink: ExtEventSink,
 }
@@ -394,6 +394,34 @@ impl Buffer {
 
     pub fn local(&self) -> bool {
         self.local
+    }
+
+    pub fn syntax(&self) -> Option<&Syntax> {
+        self.syntax.as_ref()
+    }
+
+    pub fn set_syntax(&mut self, syntax: Option<Syntax>) {
+        self.syntax = syntax;
+    }
+
+    pub fn histories(&self) -> &im::HashMap<String, Rope> {
+        &self.histories
+    }
+
+    pub fn line_styles(&self) -> Rc<RefCell<LineStyles>> {
+        self.line_styles.clone()
+    }
+
+    pub fn semantic_styles(&self) -> Option<Arc<Spans<Style>>> {
+        self.semantic_styles.clone()
+    }
+
+    pub fn set_semantic_styles(&mut self, styles: Option<Arc<Spans<Style>>>) {
+        self.semantic_styles = styles;
+    }
+
+    pub fn find(&self) -> Rc<RefCell<Find>> {
+        self.find.clone()
     }
 
     pub fn editable<'a>(
