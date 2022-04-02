@@ -233,8 +233,8 @@ pub struct Buffer {
 
     pub code_actions: im::HashMap<usize, CodeActionResponse>,
 
-    pub loaded: bool,
-    pub local: bool,
+    loaded: bool,
+    local: bool,
     pub find: Rc<RefCell<Find>>,
     pub find_progress: Rc<RefCell<FindProgress>>,
     pub syntax: Option<Syntax>,
@@ -386,6 +386,14 @@ impl Buffer {
 
     pub fn update_edit_type(&mut self) {
         self.data.last_edit_type = EditType::Other;
+    }
+
+    pub fn loaded(&self) -> bool {
+        self.loaded
+    }
+
+    pub fn local(&self) -> bool {
+        self.local
     }
 
     pub fn editable<'a>(

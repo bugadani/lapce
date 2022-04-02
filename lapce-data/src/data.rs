@@ -2061,7 +2061,9 @@ impl LapceMainSplitData {
             }
         }
 
-        let delta = Arc::make_mut(buffer).edit_multiple(edits, proxy, edit_type);
+        let delta = Arc::make_mut(buffer)
+            .editable(&proxy)
+            .edit_multiple(edits, edit_type);
         if move_cursor {
             self.cursor_apply_delta(path, &delta);
         }

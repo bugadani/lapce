@@ -20,28 +20,28 @@ pub trait BufferDataListener {
 
 #[derive(Clone)]
 pub struct BufferData {
-    pub id: BufferId,
-    pub rope: Rope,
-    pub content: BufferContent,
+    pub(super) id: BufferId,
+    pub(super) rope: Rope,
+    pub(super) content: BufferContent,
 
-    pub max_len: usize,
-    pub max_len_line: usize,
-    pub num_lines: usize,
+    pub(super) max_len: usize,
+    pub(super) max_len_line: usize,
+    pub(super) num_lines: usize,
 
-    pub rev: u64,
-    pub atomic_rev: Arc<AtomicU64>,
-    pub dirty: bool,
+    pub(super) rev: u64,
+    pub(super) atomic_rev: Arc<AtomicU64>,
+    pub(super) dirty: bool,
 
-    pub revs: Vec<Revision>,
-    pub cur_undo: usize,
-    pub undos: BTreeSet<usize>,
-    pub undo_group_id: usize,
-    pub live_undos: Vec<usize>,
-    pub deletes_from_union: Subset,
-    pub undone_groups: BTreeSet<usize>,
-    pub tombstones: Rope,
+    pub(super) revs: Vec<Revision>,
+    pub(super) cur_undo: usize,
+    pub(super) undos: BTreeSet<usize>,
+    pub(super) undo_group_id: usize,
+    pub(super) live_undos: Vec<usize>,
+    pub(super) deletes_from_union: Subset,
+    pub(super) undone_groups: BTreeSet<usize>,
+    pub(super) tombstones: Rope,
 
-    pub last_edit_type: EditType,
+    pub(super) last_edit_type: EditType,
 }
 
 impl BufferData {
@@ -363,8 +363,8 @@ impl BufferData {
 
 /// Make BufferData temporarily editable by attaching a listener object to it.
 pub struct EditableBufferData<'a, L> {
-    listener: L,
-    buffer: &'a mut BufferData,
+    pub(super) listener: L,
+    pub(super) buffer: &'a mut BufferData,
 }
 
 impl<L: BufferDataListener> EditableBufferData<'_, L> {

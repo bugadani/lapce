@@ -182,10 +182,10 @@ impl LapceEditorBufferData {
     }
 
     pub fn get_code_actions(&self, ctx: &mut EventCtx) {
-        if !self.buffer.loaded {
+        if !self.buffer.loaded() {
             return;
         }
-        if self.buffer.local {
+        if self.buffer.local() {
             return;
         }
         if let BufferContent::File(path) = self.buffer.content() {
@@ -684,10 +684,10 @@ impl LapceEditorBufferData {
         if self.get_mode() != Mode::Insert {
             return;
         }
-        if !self.buffer.loaded {
+        if !self.buffer.loaded() {
             return;
         }
-        if self.buffer.local {
+        if self.buffer.local() {
             return;
         }
         let offset = self.editor.cursor.offset();
@@ -781,11 +781,11 @@ impl LapceEditorBufferData {
     }
 
     pub fn update_hover(&mut self, ctx: &mut EventCtx, offset: usize) {
-        if !self.buffer.loaded {
+        if !self.buffer.loaded() {
             return;
         }
 
-        if self.buffer.local {
+        if self.buffer.local() {
             return;
         }
 
@@ -1314,7 +1314,7 @@ impl LapceEditorBufferData {
 
         let proxy = self.proxy.clone();
         let buffer = self.buffer_mut();
-        let delta = buffer.edit_multiple(edits, proxy, edit_type);
+        let delta = buffer.editable(&proxy).edit_multiple(edits, edit_type);
         self.inactive_apply_delta(&delta);
         if let Some(snippet) = self.editor.snippet.clone() {
             let mut transformer = Transformer::new(&delta);
@@ -1922,7 +1922,7 @@ impl KeyPressFocus for LapceEditorBufferData {
                 self.initiate_diagnositcs_offset();
                 let proxy = self.proxy.clone();
                 let buffer = self.buffer_mut();
-                if let Some(delta) = buffer.do_undo(proxy) {
+                if let Some(delta) = buffer.editable(&proxy).do_undo() {
                     self.jump_to_nearest_delta(&delta);
                     self.update_diagnositcs_offset(&delta);
                     self.update_completion(ctx);
@@ -1932,7 +1932,7 @@ impl KeyPressFocus for LapceEditorBufferData {
                 self.initiate_diagnositcs_offset();
                 let proxy = self.proxy.clone();
                 let buffer = self.buffer_mut();
-                if let Some(delta) = buffer.do_redo(proxy) {
+                if let Some(delta) = buffer.editable(&proxy).do_redo() {
                     self.jump_to_nearest_delta(&delta);
                     self.update_diagnositcs_offset(&delta);
                     self.update_completion(ctx);
