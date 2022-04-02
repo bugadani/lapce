@@ -220,19 +220,19 @@ impl BufferContent {
 
 #[derive(Clone)]
 pub struct Buffer {
-    pub id: BufferId,
-    pub rope: Rope,
-    pub content: BufferContent,
+    id: BufferId,
+    rope: Rope,
+    content: BufferContent,
     pub syntax: Option<Syntax>,
     pub indent_style: IndentStyle,
     pub line_styles: Rc<RefCell<LineStyles>>,
     pub semantic_styles: Option<Arc<Spans<Style>>>,
-    pub max_len: usize,
-    pub max_len_line: usize,
-    pub num_lines: usize,
-    pub rev: u64,
-    pub atomic_rev: Arc<AtomicU64>,
-    pub dirty: bool,
+    max_len: usize,
+    max_len_line: usize,
+    num_lines: usize,
+    rev: u64,
+    atomic_rev: Arc<AtomicU64>,
+    dirty: bool,
     pub loaded: bool,
     pub start_to_load: Rc<RefCell<bool>>,
     pub local: bool,
@@ -350,6 +350,46 @@ impl Buffer {
         }
     }
 
+    pub fn id(&self) -> BufferId {
+        self.id
+    }
+
+    pub fn rope(&self) -> &Rope {
+        &self.rope
+    }
+
+    pub fn content(&self) -> &BufferContent {
+        &self.content
+    }
+
+    pub fn max_len(&self) -> usize {
+        self.max_len
+    }
+
+    pub fn max_len_line(&self) -> usize {
+        self.max_len_line
+    }
+
+    pub fn num_lines(&self) -> usize {
+        self.num_lines
+    }
+
+    pub fn rev(&self) -> u64 {
+        self.rev
+    }
+
+    pub fn set_rev(&mut self, rev: u64) {
+        self.rev = rev;
+    }
+
+    pub fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    pub fn set_dirty(&mut self, dirty: bool) {
+        self.dirty = dirty;
+    }
+
     pub fn set_local(mut self) -> Self {
         self.local = true;
         self
@@ -396,7 +436,7 @@ impl Buffer {
         let (max_len, max_len_line) = self.get_max_line_len();
         self.max_len = max_len;
         self.max_len_line = max_len_line;
-        self.num_lines = self.num_lines();
+        self.num_lines = self.calc_num_lines();
         self.loaded = true;
         self.detect_indent();
         self.notify_update(None);
@@ -742,7 +782,7 @@ impl Buffer {
         }
     }
 
-    pub fn num_lines(&self) -> usize {
+    fn calc_num_lines(&self) -> usize {
         self.line_of_offset(self.rope.len()) + 1
     }
 
@@ -804,7 +844,7 @@ impl Buffer {
         let mut pre_offset = 0;
         let mut max_len = 0;
         let mut max_len_line = 0;
-        for line in 0..self.num_lines() + 1 {
+        for line in 0..self.calc_num_lines() + 1 {
             let offset = self.rope.offset_of_line(line);
             let line_len = offset - pre_offset;
             pre_offset = offset;
@@ -1655,7 +1695,7 @@ impl Buffer {
 
     fn update_size(&mut self, inval_lines: &InvalLines) {
         if inval_lines.inval_count != inval_lines.new_count {
-            self.num_lines = self.num_lines();
+            self.num_lines = self.calc_num_lines();
         }
         if self.max_len_line >= inval_lines.start_line
             && self.max_len_line < inval_lines.start_line + inval_lines.inval_count
