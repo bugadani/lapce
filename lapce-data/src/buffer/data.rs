@@ -32,16 +32,16 @@ pub struct BufferData {
     pub atomic_rev: Arc<AtomicU64>,
     pub dirty: bool,
 
-    revs: Vec<Revision>,
-    cur_undo: usize,
-    undos: BTreeSet<usize>,
-    undo_group_id: usize,
-    live_undos: Vec<usize>,
-    deletes_from_union: Subset,
-    undone_groups: BTreeSet<usize>,
-    tombstones: Rope,
+    pub revs: Vec<Revision>,
+    pub cur_undo: usize,
+    pub undos: BTreeSet<usize>,
+    pub undo_group_id: usize,
+    pub live_undos: Vec<usize>,
+    pub deletes_from_union: Subset,
+    pub undone_groups: BTreeSet<usize>,
+    pub tombstones: Rope,
 
-    last_edit_type: EditType,
+    pub last_edit_type: EditType,
 }
 
 impl BufferData {
@@ -53,7 +53,7 @@ impl BufferData {
         self.len() == 0
     }
 
-    fn mk_new_rev(
+    pub(super) fn mk_new_rev(
         &self,
         undo_group: usize,
         delta: RopeDelta,
@@ -341,6 +341,23 @@ impl BufferData {
             }
         }
         (max_len, max_len_line)
+    }
+
+    pub(super) fn reset_revs(&mut self) {
+        self.rope = Rope::from("");
+        self.revs = vec![Revision {
+            max_undo_so_far: 0,
+            edit: Contents::Undo {
+                toggled_groups: BTreeSet::new(),
+                deletes_bitxor: Subset::new(0),
+            },
+        }];
+        self.cur_undo = 1;
+        self.undo_group_id = 1;
+        self.live_undos = vec![0];
+        self.deletes_from_union = Subset::new(0);
+        self.undone_groups = BTreeSet::new();
+        self.tombstones = Rope::default();
     }
 }
 

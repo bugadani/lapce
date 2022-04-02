@@ -14,7 +14,7 @@ use lsp_types::SemanticTokensServerCapabilities;
 use lsp_types::{CodeActionResponse, Position};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::cmp::{self, Ordering};
+use std::cmp;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -23,8 +23,8 @@ use std::sync::atomic::{self, AtomicU64};
 use std::{borrow::Cow, collections::BTreeSet, path::PathBuf, sync::Arc, thread};
 use unicode_width::UnicodeWidthChar;
 use xi_rope::{
-    multiset::Subset, rope::Rope, spans::Spans, Cursor, Delta, DeltaBuilder,
-    Interval, RopeDelta, RopeInfo,
+    multiset::Subset, rope::Rope, spans::Spans, Cursor, Delta, Interval, RopeDelta,
+    RopeInfo,
 };
 use xi_unicode::EmojiExt;
 
@@ -220,19 +220,11 @@ impl BufferContent {
 
 #[derive(Clone)]
 pub struct Buffer {
-    id: BufferId,
-    rope: Rope,
-    content: BufferContent,
+    data: BufferData,
     pub syntax: Option<Syntax>,
     pub indent_style: IndentStyle,
     pub line_styles: Rc<RefCell<LineStyles>>,
     pub semantic_styles: Option<Arc<Spans<Style>>>,
-    max_len: usize,
-    max_len_line: usize,
-    num_lines: usize,
-    rev: u64,
-    atomic_rev: Arc<AtomicU64>,
-    dirty: bool,
     pub loaded: bool,
     pub start_to_load: Rc<RefCell<bool>>,
     pub local: bool,
@@ -243,17 +235,6 @@ pub struct Buffer {
 
     pub find: Rc<RefCell<Find>>,
     pub find_progress: Rc<RefCell<FindProgress>>,
-
-    revs: Vec<Revision>,
-    cur_undo: usize,
-    undos: BTreeSet<usize>,
-    undo_group_id: usize,
-    live_undos: Vec<usize>,
-    deletes_from_union: Subset,
-    undone_groups: BTreeSet<usize>,
-    tombstones: Rope,
-
-    last_edit_type: EditType,
 
     pub cursor_offset: usize,
     pub scroll_offset: Vec2,
@@ -301,45 +282,49 @@ impl Buffer {
         };
 
         Self {
-            id: BufferId::next(),
-            rope,
+            data: BufferData {
+                id: BufferId::next(),
+                rope,
+                content,
+
+                max_len: 0,
+                max_len_line: 0,
+                num_lines: 0,
+
+                rev: 0,
+                atomic_rev: Arc::new(AtomicU64::new(0)),
+                dirty: false,
+
+                revs: vec![Revision {
+                    max_undo_so_far: 0,
+                    edit: Contents::Undo {
+                        toggled_groups: BTreeSet::new(),
+                        deletes_bitxor: Subset::new(0),
+                    },
+                }],
+                cur_undo: 1,
+                undos: BTreeSet::new(),
+                undo_group_id: 1,
+                live_undos: vec![0],
+                deletes_from_union: Subset::new(0),
+                undone_groups: BTreeSet::new(),
+                tombstones: Rope::default(),
+
+                last_edit_type: EditType::Other,
+            },
             syntax,
             line_styles: Rc::new(RefCell::new(HashMap::new())),
             indent_style: DEFAULT_INDENT,
             semantic_styles: None,
-            content,
             find: Rc::new(RefCell::new(Find::new(0))),
             find_progress: Rc::new(RefCell::new(FindProgress::Ready)),
-            max_len: 0,
-            max_len_line: 0,
-            num_lines: 0,
-            rev: 0,
-            atomic_rev: Arc::new(AtomicU64::new(0)),
             start_to_load: Rc::new(RefCell::new(false)),
             loaded: false,
-            dirty: false,
             local: false,
             histories: im::HashMap::new(),
             history_styles: im::HashMap::new(),
             history_line_styles: Rc::new(RefCell::new(HashMap::new())),
             history_changes: im::HashMap::new(),
-
-            revs: vec![Revision {
-                max_undo_so_far: 0,
-                edit: Contents::Undo {
-                    toggled_groups: BTreeSet::new(),
-                    deletes_bitxor: Subset::new(0),
-                },
-            }],
-            cur_undo: 1,
-            undos: BTreeSet::new(),
-            undo_group_id: 1,
-            live_undos: vec![0],
-            deletes_from_union: Subset::new(0),
-            undone_groups: BTreeSet::new(),
-            tombstones: Rope::default(),
-
-            last_edit_type: EditType::Other,
 
             cursor_offset: 0,
             scroll_offset: Vec2::ZERO,
@@ -351,43 +336,43 @@ impl Buffer {
     }
 
     pub fn id(&self) -> BufferId {
-        self.id
+        self.data.id
     }
 
     pub fn rope(&self) -> &Rope {
-        &self.rope
+        &self.data.rope
     }
 
     pub fn content(&self) -> &BufferContent {
-        &self.content
+        &self.data.content
     }
 
     pub fn max_len(&self) -> usize {
-        self.max_len
+        self.data.max_len
     }
 
     pub fn max_len_line(&self) -> usize {
-        self.max_len_line
+        self.data.max_len_line
     }
 
     pub fn num_lines(&self) -> usize {
-        self.num_lines
+        self.data.num_lines
     }
 
     pub fn rev(&self) -> u64 {
-        self.rev
+        self.data.rev
     }
 
     pub fn set_rev(&mut self, rev: u64) {
-        self.rev = rev;
+        self.data.rev = rev;
     }
 
     pub fn dirty(&self) -> bool {
-        self.dirty
+        self.data.dirty
     }
 
     pub fn set_dirty(&mut self, dirty: bool) {
-        self.dirty = dirty;
+        self.data.dirty = dirty;
     }
 
     pub fn set_local(mut self) -> Self {
@@ -396,20 +381,11 @@ impl Buffer {
     }
 
     pub fn reset_revs(&mut self) {
-        self.rope = Rope::from("");
-        self.revs = vec![Revision {
-            max_undo_so_far: 0,
-            edit: Contents::Undo {
-                toggled_groups: BTreeSet::new(),
-                deletes_bitxor: Subset::new(0),
-            },
-        }];
-        self.cur_undo = 1;
-        self.undo_group_id = 1;
-        self.live_undos = vec![0];
-        self.deletes_from_union = Subset::new(0);
-        self.undone_groups = BTreeSet::new();
-        self.tombstones = Rope::default();
+        self.data.reset_revs();
+    }
+
+    pub fn update_edit_type(&mut self) {
+        self.data.last_edit_type = EditType::Other;
     }
 
     pub fn load_history(&mut self, version: &str, content: Rope) {
@@ -425,26 +401,26 @@ impl Buffer {
             let delta =
                 Delta::simple_edit(Interval::new(0, 0), Rope::from(content), 0);
             let (new_rev, new_text, new_tombstones, new_deletes_from_union) =
-                self.mk_new_rev(0, delta);
-            self.revs.push(new_rev);
-            self.rope = new_text;
-            self.tombstones = new_tombstones;
-            self.deletes_from_union = new_deletes_from_union;
+                self.data.mk_new_rev(0, delta);
+            self.data.revs.push(new_rev);
+            self.data.rope = new_text;
+            self.data.tombstones = new_tombstones;
+            self.data.deletes_from_union = new_deletes_from_union;
         }
 
         self.code_actions.clear();
         let (max_len, max_len_line) = self.get_max_line_len();
-        self.max_len = max_len;
-        self.max_len_line = max_len_line;
-        self.num_lines = self.calc_num_lines();
+        self.data.max_len = max_len;
+        self.data.max_len_line = max_len_line;
+        self.data.num_lines = self.calc_num_lines();
         self.loaded = true;
         self.detect_indent();
         self.notify_update(None);
     }
 
     pub fn detect_indent(&mut self) {
-        self.indent_style =
-            auto_detect_indent_style(&self.rope).unwrap_or_else(|| {
+        self.indent_style = auto_detect_indent_style(&self.data.rope)
+            .unwrap_or_else(|| {
                 self.syntax
                     .as_ref()
                     .map(|s| IndentStyle::from_str(s.language.indent_unit()))
@@ -457,8 +433,8 @@ impl Buffer {
     }
 
     fn retrieve_history_styles(&self, version: &str, content: Rope) {
-        if let BufferContent::File(path) = &self.content {
-            let id = self.id;
+        if let BufferContent::File(path) = &self.data.content {
+            let id = self.id();
             let path = path.clone();
             let tab_id = self.tab_id;
             let version = version.to_string();
@@ -485,14 +461,14 @@ impl Buffer {
     }
 
     fn trigger_history_change(&self) {
-        if let BufferContent::File(path) = &self.content {
+        if let BufferContent::File(path) = &self.data.content {
             if let Some(head) = self.histories.get("head") {
-                let id = self.id;
-                let rev = self.rev;
-                let atomic_rev = self.atomic_rev.clone();
+                let id = self.id();
+                let rev = self.rev();
+                let atomic_rev = self.data.atomic_rev.clone();
                 let path = path.clone();
                 let left_rope = head.clone();
-                let right_rope = self.rope.clone();
+                let right_rope = self.rope().clone();
                 let event_sink = self.event_sink.clone();
                 let tab_id = self.tab_id;
                 rayon::spawn(move || {
@@ -526,10 +502,10 @@ impl Buffer {
     }
 
     fn notify_special(&self) {
-        match &self.content {
+        match &self.data.content {
             BufferContent::File(_) => {}
             BufferContent::Local(local) => {
-                let s = self.rope.to_string();
+                let s = self.data.rope.to_string();
                 match local {
                     LocalBufferKind::Search => {
                         let _ = self.event_sink.submit_command(
@@ -567,7 +543,7 @@ impl Buffer {
             BufferContent::Value(_) => {}
         }
 
-        if let BufferContent::Local(LocalBufferKind::Search) = self.content {}
+        if let BufferContent::Local(LocalBufferKind::Search) = self.data.content {}
     }
 
     pub fn notify_update(&self, delta: Option<&RopeDelta>) {
@@ -576,13 +552,13 @@ impl Buffer {
     }
 
     fn trigger_syntax_change(&self, delta: Option<&RopeDelta>) {
-        if let BufferContent::File(path) = &self.content {
+        if let BufferContent::File(path) = &self.data.content {
             if let Some(syntax) = self.syntax.clone() {
                 let path = path.clone();
-                let rev = self.rev;
-                let text = self.rope.clone();
+                let rev = self.rev();
+                let text = self.data.rope.clone();
                 let delta = delta.cloned();
-                let atomic_rev = self.atomic_rev.clone();
+                let atomic_rev = self.data.atomic_rev.clone();
                 let event_sink = self.event_sink.clone();
                 let tab_id = self.tab_id;
                 rayon::spawn(move || {
@@ -613,8 +589,8 @@ impl Buffer {
         proxy: Arc<LapceProxy>,
         event_sink: ExtEventSink,
     ) {
-        let id = self.id;
-        if let BufferContent::File(path) = &self.content {
+        let id = self.data.id;
+        if let BufferContent::File(path) = &self.data.content {
             let path = path.clone();
             thread::spawn(move || {
                 proxy.get_buffer_head(
@@ -655,8 +631,8 @@ impl Buffer {
             return;
         }
         *self.start_to_load.borrow_mut() = true;
-        let id = self.id;
-        if let BufferContent::File(path) = &self.content {
+        let id = self.data.id;
+        if let BufferContent::File(path) = &self.data.content {
             let path = path.clone();
             let proxy = proxy.clone();
             let event_sink = event_sink.clone();
@@ -763,7 +739,7 @@ impl Buffer {
         if let Some((search_range_start, search_range_end)) = search_range {
             if !find.is_multiline_regex() {
                 find.update_find(
-                    &self.rope,
+                    &self.data.rope,
                     search_range_start,
                     search_range_end,
                     true,
@@ -772,7 +748,7 @@ impl Buffer {
                 // only execute multi-line regex queries if we are searching the entire text (last step)
                 if search_range_start == 0 && search_range_end == self.len() {
                     find.update_find(
-                        &self.rope,
+                        &self.data.rope,
                         search_range_start,
                         search_range_end,
                         true,
@@ -783,17 +759,17 @@ impl Buffer {
     }
 
     fn calc_num_lines(&self) -> usize {
-        self.line_of_offset(self.rope.len()) + 1
+        self.line_of_offset(self.data.rope.len()) + 1
     }
 
     pub fn last_line(&self) -> usize {
-        self.line_of_offset(self.rope.len())
+        self.line_of_offset(self.data.rope.len())
     }
 
     pub fn line_of_offset(&self, offset: usize) -> usize {
         let max = self.len();
         let offset = if offset > max { max } else { offset };
-        self.rope.line_of_offset(offset)
+        self.data.rope.line_of_offset(offset)
     }
 
     pub fn offset_line_content(&self, offset: usize) -> Cow<str> {
@@ -813,18 +789,18 @@ impl Buffer {
         } else {
             line
         };
-        self.rope.offset_of_line(line)
+        self.data.rope.offset_of_line(line)
     }
 
     pub fn select_word(&self, offset: usize) -> (usize, usize) {
-        WordCursor::new(&self.rope, offset).select_word()
+        WordCursor::new(&self.data.rope, offset).select_word()
     }
 
     pub fn char_at_offset(&self, offset: usize) -> Option<char> {
         if self.is_empty() {
             return None;
         }
-        WordCursor::new(&self.rope, offset)
+        WordCursor::new(&self.data.rope, offset)
             .inner
             .peek_next_codepoint()
     }
@@ -836,8 +812,8 @@ impl Buffer {
         } else {
             line
         };
-        let line_start_offset = self.rope.offset_of_line(line);
-        WordCursor::new(&self.rope, line_start_offset).next_non_blank_char()
+        let line_start_offset = self.data.rope.offset_of_line(line);
+        WordCursor::new(&self.data.rope, line_start_offset).next_non_blank_char()
     }
 
     pub fn get_max_line_len(&self) -> (usize, usize) {
@@ -845,7 +821,7 @@ impl Buffer {
         let mut max_len = 0;
         let mut max_len_line = 0;
         for line in 0..self.calc_num_lines() + 1 {
-            let offset = self.rope.offset_of_line(line);
+            let offset = self.data.rope.offset_of_line(line);
             let line_len = offset - pre_offset;
             pre_offset = offset;
             if line_len > max_len {
@@ -857,7 +833,7 @@ impl Buffer {
     }
 
     pub fn len(&self) -> usize {
-        self.rope.len()
+        self.data.rope.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -921,7 +897,7 @@ impl Buffer {
                 .or_else(|| self.syntax.as_ref().and_then(|s| s.styles.as_ref()));
 
             let line_styles = styles
-                .map(|styles| line_styles(&self.rope, line, styles))
+                .map(|styles| line_styles(&self.data.rope, line, styles))
                 .unwrap_or_default();
             self.line_styles
                 .borrow_mut()
@@ -1022,15 +998,19 @@ impl Buffer {
     }
 
     pub fn indent_on_line(&self, line: usize) -> String {
-        let line_start_offset = self.rope.offset_of_line(line);
-        let word_boundary =
-            WordCursor::new(&self.rope, line_start_offset).next_non_blank_char();
-        let indent = self.rope.slice_to_cow(line_start_offset..word_boundary);
+        let line_start_offset = self.data.rope.offset_of_line(line);
+        let word_boundary = WordCursor::new(&self.data.rope, line_start_offset)
+            .next_non_blank_char();
+        let indent = self
+            .data
+            .rope
+            .slice_to_cow(line_start_offset..word_boundary);
         indent.to_string()
     }
 
     pub fn slice_to_cow(&self, range: Range<usize>) -> Cow<str> {
-        self.rope
+        self.data
+            .rope
             .slice_to_cow(range.start.min(self.len())..range.end.min(self.len()))
     }
 
@@ -1222,7 +1202,7 @@ impl Buffer {
         count: usize,
         limit: usize,
     ) -> usize {
-        let mut cursor = Cursor::new(&self.rope, offset);
+        let mut cursor = Cursor::new(&self.data.rope, offset);
         let mut new_offset = offset;
         for _i in 0..count {
             if let Some(prev_offset) = cursor.prev_grapheme() {
@@ -1249,7 +1229,7 @@ impl Buffer {
         } else {
             offset
         };
-        let mut cursor = Cursor::new(&self.rope, offset);
+        let mut cursor = Cursor::new(&self.data.rope, offset);
         let mut new_offset = offset;
         for _i in 0..count {
             if let Some(next_offset) = cursor.next_grapheme() {
@@ -1580,13 +1560,13 @@ impl Buffer {
             Movement::Offset(offset) => {
                 let new_offset = *offset;
                 let new_offset =
-                    self.rope.prev_grapheme_offset(new_offset + 1).unwrap();
+                    self.data.rope.prev_grapheme_offset(new_offset + 1).unwrap();
                 let (_, col) =
                     self.offset_to_line_col(new_offset, config.editor.tab_width);
                 (new_offset, ColPosition::Col(col))
             }
             Movement::WordEndForward => {
-                let mut new_offset = WordCursor::new(&self.rope, offset)
+                let mut new_offset = WordCursor::new(&self.data.rope, offset)
                     .end_boundary()
                     .unwrap_or(offset);
                 if mode != Mode::Insert {
@@ -1597,7 +1577,7 @@ impl Buffer {
                 (new_offset, ColPosition::Col(col))
             }
             Movement::WordForward => {
-                let new_offset = WordCursor::new(&self.rope, offset)
+                let new_offset = WordCursor::new(&self.data.rope, offset)
                     .next_boundary()
                     .unwrap_or(offset);
                 let (_, col) =
@@ -1605,7 +1585,7 @@ impl Buffer {
                 (new_offset, ColPosition::Col(col))
             }
             Movement::WordBackward => {
-                let new_offset = WordCursor::new(&self.rope, offset)
+                let new_offset = WordCursor::new(&self.data.rope, offset)
                     .prev_boundary()
                     .unwrap_or(offset);
                 let (_, col) =
@@ -1621,7 +1601,7 @@ impl Buffer {
                         self.offset_to_line_col(new_offset, config.editor.tab_width);
                     (new_offset, ColPosition::Col(col))
                 } else {
-                    let new_offset = WordCursor::new(&self.rope, offset)
+                    let new_offset = WordCursor::new(&self.data.rope, offset)
                         .next_unmatched(*c)
                         .map_or(offset, |new| new - 1);
                     let (_, col) =
@@ -1638,7 +1618,7 @@ impl Buffer {
                         self.offset_to_line_col(new_offset, config.editor.tab_width);
                     (new_offset, ColPosition::Col(col))
                 } else {
-                    let new_offset = WordCursor::new(&self.rope, offset)
+                    let new_offset = WordCursor::new(&self.data.rope, offset)
                         .previous_unmatched(*c)
                         .unwrap_or(offset);
                     let (_, col) =
@@ -1654,7 +1634,7 @@ impl Buffer {
                         self.offset_to_line_col(new_offset, config.editor.tab_width);
                     (new_offset, ColPosition::Col(col))
                 } else {
-                    let new_offset = WordCursor::new(&self.rope, offset)
+                    let new_offset = WordCursor::new(&self.data.rope, offset)
                         .match_pairs()
                         .unwrap_or(offset);
                     let (_, col) =
@@ -1669,16 +1649,16 @@ impl Buffer {
         if let Some(syntax) = self.syntax.as_ref() {
             syntax.find_tag(offset, true, &c.to_string())
         } else {
-            WordCursor::new(&self.rope, offset).previous_unmatched(c)
+            WordCursor::new(&self.data.rope, offset).previous_unmatched(c)
         }
     }
 
     pub fn prev_code_boundary(&self, offset: usize) -> usize {
-        WordCursor::new(&self.rope, offset).prev_code_boundary()
+        WordCursor::new(&self.data.rope, offset).prev_code_boundary()
     }
 
     pub fn next_code_boundary(&self, offset: usize) -> usize {
-        WordCursor::new(&self.rope, offset).next_code_boundary()
+        WordCursor::new(&self.data.rope, offset).next_code_boundary()
     }
 
     pub fn update_history_changes(
@@ -1687,409 +1667,10 @@ impl Buffer {
         history: &str,
         changes: Arc<Vec<DiffLines>>,
     ) {
-        if rev != self.rev {
+        if rev != self.rev() {
             return;
         }
         self.history_changes.insert(history.to_string(), changes);
-    }
-
-    fn update_size(&mut self, inval_lines: &InvalLines) {
-        if inval_lines.inval_count != inval_lines.new_count {
-            self.num_lines = self.calc_num_lines();
-        }
-        if self.max_len_line >= inval_lines.start_line
-            && self.max_len_line < inval_lines.start_line + inval_lines.inval_count
-        {
-            let (max_len, max_len_line) = self.get_max_line_len();
-            self.max_len = max_len;
-            self.max_len_line = max_len_line;
-        } else {
-            let mut max_len = 0;
-            let mut max_len_line = 0;
-            for line in inval_lines.start_line
-                ..inval_lines.start_line + inval_lines.new_count
-            {
-                let line_len = self.line_len(line);
-                if line_len > max_len {
-                    max_len = line_len;
-                    max_len_line = line;
-                }
-            }
-            if max_len > self.max_len {
-                self.max_len = max_len;
-                self.max_len_line = max_len_line;
-            } else if self.max_len_line >= inval_lines.start_line {
-                self.max_len_line = self.max_len_line + inval_lines.new_count
-                    - inval_lines.inval_count;
-            }
-        }
-    }
-
-    fn update_styles(&mut self, delta: &RopeDelta) {
-        if let Some(styles) = self.semantic_styles.as_mut() {
-            Arc::make_mut(styles).apply_shape(delta);
-        } else if let Some(syntax) = self.syntax.as_mut() {
-            if let Some(styles) = syntax.styles.as_mut() {
-                Arc::make_mut(styles).apply_shape(delta);
-            }
-        }
-
-        if let Some(syntax) = self.syntax.as_mut() {
-            syntax.lens.apply_delta(delta);
-        }
-
-        self.line_styles.borrow_mut().clear();
-    }
-
-    fn mk_new_rev(
-        &self,
-        undo_group: usize,
-        delta: RopeDelta,
-    ) -> (Revision, Rope, Rope, Subset) {
-        let (ins_delta, deletes) = delta.factor();
-
-        let deletes_at_rev = &self.deletes_from_union;
-
-        let union_ins_delta = ins_delta.transform_expand(deletes_at_rev, true);
-        let mut new_deletes = deletes.transform_expand(deletes_at_rev);
-
-        let new_inserts = union_ins_delta.inserted_subset();
-        if !new_inserts.is_empty() {
-            new_deletes = new_deletes.transform_expand(&new_inserts);
-        }
-        let cur_deletes_from_union = &self.deletes_from_union;
-        let text_ins_delta =
-            union_ins_delta.transform_shrink(cur_deletes_from_union);
-        let text_with_inserts = text_ins_delta.apply(&self.rope);
-        let rebased_deletes_from_union =
-            cur_deletes_from_union.transform_expand(&new_inserts);
-
-        let undone = self.undone_groups.contains(&undo_group);
-        let new_deletes_from_union = {
-            let to_delete = if undone { &new_inserts } else { &new_deletes };
-            rebased_deletes_from_union.union(to_delete)
-        };
-
-        let (new_text, new_tombstones) = shuffle(
-            &text_with_inserts,
-            &self.tombstones,
-            &rebased_deletes_from_union,
-            &new_deletes_from_union,
-        );
-
-        let head_rev = &self.revs.last().unwrap();
-        (
-            Revision {
-                max_undo_so_far: std::cmp::max(undo_group, head_rev.max_undo_so_far),
-                edit: Contents::Edit {
-                    undo_group,
-                    inserts: new_inserts,
-                    deletes: new_deletes,
-                },
-            },
-            new_text,
-            new_tombstones,
-            new_deletes_from_union,
-        )
-    }
-
-    fn calculate_undo_group(&mut self, edit_type: EditType) -> usize {
-        let has_undos = !self.live_undos.is_empty();
-        let is_unbroken_group = !edit_type.breaks_undo_group(self.last_edit_type);
-
-        if has_undos && is_unbroken_group {
-            *self.live_undos.last().unwrap()
-        } else {
-            let undo_group = self.undo_group_id;
-            self.live_undos.truncate(self.cur_undo);
-            self.live_undos.push(undo_group);
-            self.cur_undo += 1;
-            self.undo_group_id += 1;
-            undo_group
-        }
-    }
-
-    fn apply_edit(
-        &mut self,
-        delta: &RopeDelta,
-        new_rev: Revision,
-        new_text: Rope,
-        new_tombstones: Rope,
-        new_deletes_from_union: Subset,
-    ) -> InvalLines {
-        self.rev += 1;
-        self.atomic_rev.store(self.rev, atomic::Ordering::Release);
-        self.dirty = true;
-
-        let (iv, newlen) = delta.summary();
-        let old_logical_end_line = self.rope.line_of_offset(iv.end) + 1;
-
-        self.revs.push(new_rev);
-        self.rope = new_text;
-        self.tombstones = new_tombstones;
-        self.deletes_from_union = new_deletes_from_union;
-        self.code_actions.clear();
-
-        let logical_start_line = self.rope.line_of_offset(iv.start);
-        let new_logical_end_line = self.rope.line_of_offset(iv.start + newlen) + 1;
-        let old_hard_count = old_logical_end_line - logical_start_line;
-        let new_hard_count = new_logical_end_line - logical_start_line;
-
-        InvalLines {
-            start_line: logical_start_line,
-            inval_count: old_hard_count,
-            new_count: new_hard_count,
-        }
-    }
-
-    pub fn update_edit_type(&mut self) {
-        self.last_edit_type = EditType::Other;
-    }
-
-    pub fn edit_multiple(
-        &mut self,
-        edits: &[(&Selection, &str)],
-        proxy: Arc<LapceProxy>,
-        edit_type: EditType,
-    ) -> RopeDelta {
-        let mut builder = DeltaBuilder::new(self.len());
-        let mut interval_rope = Vec::new();
-        for (selection, content) in edits {
-            let rope = Rope::from(content);
-            for region in selection.regions() {
-                interval_rope.push((region.min(), region.max(), rope.clone()));
-            }
-        }
-        interval_rope.sort_by(|a, b| {
-            if a.0 == b.0 && a.1 == b.1 {
-                Ordering::Equal
-            } else if a.1 == b.0 {
-                Ordering::Less
-            } else {
-                a.1.cmp(&b.0)
-            }
-        });
-        for (start, end, rope) in interval_rope.into_iter() {
-            builder.replace(start..end, rope);
-        }
-        let delta = builder.build();
-        let undo_group = self.calculate_undo_group(edit_type);
-        self.last_edit_type = edit_type;
-
-        let (new_rev, new_text, new_tombstones, new_deletes_from_union) =
-            self.mk_new_rev(undo_group, delta.clone());
-
-        if self.loaded {
-            let inval_lines = self.apply_edit(
-                &delta,
-                new_rev,
-                new_text,
-                new_tombstones,
-                new_deletes_from_union,
-            );
-
-            if !self.local {
-                proxy.update(self.id, &delta, self.rev);
-            }
-
-            self.update_size(&inval_lines);
-            self.update_styles(&delta);
-            self.find.borrow_mut().unset();
-            *self.find_progress.borrow_mut() = FindProgress::Started;
-            self.notify_update(Some(&delta));
-            self.notify_special();
-        }
-
-        delta
-    }
-
-    pub fn edit(
-        &mut self,
-        selection: &Selection,
-        content: &str,
-        proxy: Arc<LapceProxy>,
-        edit_type: EditType,
-    ) -> RopeDelta {
-        self.edit_multiple(&[(selection, content)], proxy, edit_type)
-    }
-
-    pub fn do_undo(&mut self, proxy: Arc<LapceProxy>) -> Option<RopeDelta> {
-        if self.cur_undo > 1 {
-            self.cur_undo -= 1;
-            self.undos.insert(self.live_undos[self.cur_undo]);
-            self.last_edit_type = EditType::Undo;
-            Some(self.undo(self.undos.clone(), proxy))
-        } else {
-            None
-        }
-    }
-
-    pub fn do_redo(&mut self, proxy: Arc<LapceProxy>) -> Option<RopeDelta> {
-        if self.cur_undo < self.live_undos.len() {
-            self.undos.remove(&self.live_undos[self.cur_undo]);
-            self.cur_undo += 1;
-            self.last_edit_type = EditType::Redo;
-            Some(self.undo(self.undos.clone(), proxy))
-        } else {
-            None
-        }
-    }
-
-    fn undo(
-        &mut self,
-        groups: BTreeSet<usize>,
-        proxy: Arc<LapceProxy>,
-    ) -> RopeDelta {
-        let (new_rev, new_deletes_from_union) = self.compute_undo(&groups);
-        let delta = Delta::synthesize(
-            &self.tombstones,
-            &self.deletes_from_union,
-            &new_deletes_from_union,
-        );
-        let new_text = delta.apply(&self.rope);
-        let new_tombstones = shuffle_tombstones(
-            &self.rope,
-            &self.tombstones,
-            &self.deletes_from_union,
-            &new_deletes_from_union,
-        );
-        self.undone_groups = groups;
-
-        if self.loaded {
-            let inval_lines = self.apply_edit(
-                &delta,
-                new_rev,
-                new_text,
-                new_tombstones,
-                new_deletes_from_union,
-            );
-
-            if !self.local {
-                proxy.update(self.id, &delta, self.rev);
-            }
-            self.update_size(&inval_lines);
-            self.update_styles(&delta);
-            self.find.borrow_mut().unset();
-            *self.find_progress.borrow_mut() = FindProgress::Started;
-            self.notify_update(Some(&delta));
-            self.notify_special();
-        }
-
-        delta
-    }
-
-    fn deletes_from_union_before_index(
-        &self,
-        rev_index: usize,
-        invert_undos: bool,
-    ) -> Cow<Subset> {
-        let mut deletes_from_union = Cow::Borrowed(&self.deletes_from_union);
-        let mut undone_groups = Cow::Borrowed(&self.undone_groups);
-
-        // invert the changes to deletes_from_union starting in the present and working backwards
-        for rev in self.revs[rev_index..].iter().rev() {
-            deletes_from_union = match rev.edit {
-                Contents::Edit {
-                    ref inserts,
-                    ref deletes,
-                    ref undo_group,
-                    ..
-                } => {
-                    if undone_groups.contains(undo_group) {
-                        // no need to un-delete undone inserts since we'll just shrink them out
-                        Cow::Owned(deletes_from_union.transform_shrink(inserts))
-                    } else {
-                        let un_deleted = deletes_from_union.subtract(deletes);
-                        Cow::Owned(un_deleted.transform_shrink(inserts))
-                    }
-                }
-                Contents::Undo {
-                    ref toggled_groups,
-                    ref deletes_bitxor,
-                } => {
-                    if invert_undos {
-                        let new_undone = undone_groups
-                            .symmetric_difference(toggled_groups)
-                            .cloned()
-                            .collect();
-                        undone_groups = Cow::Owned(new_undone);
-                        Cow::Owned(deletes_from_union.bitxor(deletes_bitxor))
-                    } else {
-                        deletes_from_union
-                    }
-                }
-            }
-        }
-        deletes_from_union
-    }
-
-    fn find_first_undo_candidate_index(
-        &self,
-        toggled_groups: &BTreeSet<usize>,
-    ) -> usize {
-        // find the lowest toggled undo group number
-        if let Some(lowest_group) = toggled_groups.iter().cloned().next() {
-            for (i, rev) in self.revs.iter().enumerate().rev() {
-                if rev.max_undo_so_far < lowest_group {
-                    return i + 1; // +1 since we know the one we just found doesn't have it
-                }
-            }
-            0
-        } else {
-            // no toggled groups, return past end
-            self.revs.len()
-        }
-    }
-
-    fn compute_undo(&self, groups: &BTreeSet<usize>) -> (Revision, Subset) {
-        let toggled_groups = self
-            .undone_groups
-            .symmetric_difference(groups)
-            .cloned()
-            .collect();
-        let first_candidate = self.find_first_undo_candidate_index(&toggled_groups);
-        // the `false` below: don't invert undos since our first_candidate is based on the current undo set, not past
-        let mut deletes_from_union = self
-            .deletes_from_union_before_index(first_candidate, false)
-            .into_owned();
-
-        for rev in &self.revs[first_candidate..] {
-            if let Contents::Edit {
-                ref undo_group,
-                ref inserts,
-                ref deletes,
-                ..
-            } = rev.edit
-            {
-                if groups.contains(undo_group) {
-                    if !inserts.is_empty() {
-                        deletes_from_union =
-                            deletes_from_union.transform_union(inserts);
-                    }
-                } else {
-                    if !inserts.is_empty() {
-                        deletes_from_union =
-                            deletes_from_union.transform_expand(inserts);
-                    }
-                    if !deletes.is_empty() {
-                        deletes_from_union = deletes_from_union.union(deletes);
-                    }
-                }
-            }
-        }
-
-        let deletes_bitxor = self.deletes_from_union.bitxor(&deletes_from_union);
-        let max_undo_so_far = self.revs.last().unwrap().max_undo_so_far;
-        (
-            Revision {
-                max_undo_so_far,
-                edit: Contents::Undo {
-                    toggled_groups,
-                    deletes_bitxor,
-                },
-            },
-            deletes_from_union,
-        )
     }
 }
 
