@@ -211,9 +211,6 @@ impl BufferContent {
 }
 
 // TODO:
-// - maybe extract Undo related stuff to a new type
-// - use BufferData
-// - allow decorating with the misc stuff
 // - create BufferEditor to define edit operations
 //   - edit operations as events, given cursor
 //   - should be able to work on a decorated buffer
