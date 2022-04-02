@@ -28,7 +28,7 @@ use xi_rope::{
 };
 use xi_unicode::EmojiExt;
 
-use crate::buffer::data::{BufferData, BufferDataListener};
+use crate::buffer::data::{BufferData, BufferDataListener, EditableBufferData};
 use crate::buffer::decoration::BufferDecoration;
 use crate::config::{Config, LapceTheme};
 use crate::editor::EditorLocationNew;
@@ -247,7 +247,7 @@ pub struct Buffer {
 
 pub struct BufferEditListener<'a> {
     decoration: &'a mut BufferDecoration,
-    proxy: &'a Arc<LapceProxy>,
+    proxy: &'a LapceProxy,
 }
 
 impl BufferDataListener for BufferEditListener<'_> {
@@ -386,6 +386,19 @@ impl Buffer {
 
     pub fn update_edit_type(&mut self) {
         self.data.last_edit_type = EditType::Other;
+    }
+
+    pub fn editable<'a>(
+        &'a mut self,
+        proxy: &'a LapceProxy,
+    ) -> EditableBufferData<'a, BufferEditListener> {
+        EditableBufferData {
+            listener: BufferEditListener {
+                decoration: todo!(),
+                proxy,
+            },
+            buffer: &mut self.data,
+        }
     }
 
     pub fn load_history(&mut self, version: &str, content: Rope) {
