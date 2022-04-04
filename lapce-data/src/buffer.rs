@@ -218,7 +218,6 @@ impl BufferContent {
 #[derive(Clone)]
 pub struct Buffer {
     data: BufferData,
-    pub indent_style: IndentStyle,
     pub start_to_load: Rc<RefCell<bool>>,
 
     pub history_styles: im::HashMap<String, Arc<Spans<Style>>>,
@@ -299,6 +298,7 @@ impl Buffer {
                 tombstones: Rope::default(),
 
                 last_edit_type: EditType::Other,
+                indent_style: DEFAULT_INDENT,
             },
             decoration: BufferDecoration {
                 syntax,
@@ -312,7 +312,6 @@ impl Buffer {
                 tab_id,
                 event_sink,
             },
-            indent_style: DEFAULT_INDENT,
             start_to_load: Rc::new(RefCell::new(false)),
             history_styles: im::HashMap::new(),
             history_line_styles: Rc::new(RefCell::new(HashMap::new())),
@@ -460,7 +459,7 @@ impl Buffer {
     }
 
     pub fn detect_indent(&mut self) {
-        self.indent_style = auto_detect_indent_style(&self.data.rope)
+        self.data.indent_style = auto_detect_indent_style(&self.data.rope)
             .unwrap_or_else(|| {
                 self.syntax()
                     .map(|s| IndentStyle::from_str(s.language.indent_unit()))
@@ -469,7 +468,7 @@ impl Buffer {
     }
 
     pub fn indent_unit(&self) -> &'static str {
-        self.indent_style.as_str()
+        self.data.indent_unit()
     }
 
     fn retrieve_history_styles(&self, version: &str, content: Rope) {
@@ -762,9 +761,7 @@ impl Buffer {
     }
 
     pub fn line_of_offset(&self, offset: usize) -> usize {
-        let max = self.len();
-        let offset = if offset > max { max } else { offset };
-        self.data.rope.line_of_offset(offset)
+        self.data.line_of_offset(offset)
     }
 
     pub fn offset_line_content(&self, offset: usize) -> Cow<str> {
@@ -778,13 +775,7 @@ impl Buffer {
     }
 
     pub fn offset_of_line(&self, line: usize) -> usize {
-        let last_line = self.last_line();
-        let line = if line > last_line + 1 {
-            last_line + 1
-        } else {
-            line
-        };
-        self.data.rope.offset_of_line(line)
+        self.data.offset_of_line(line)
     }
 
     pub fn select_word(&self, offset: usize) -> (usize, usize) {
@@ -1006,9 +997,7 @@ impl Buffer {
     }
 
     pub fn slice_to_cow(&self, range: Range<usize>) -> Cow<str> {
-        self.data
-            .rope
-            .slice_to_cow(range.start.min(self.len())..range.end.min(self.len()))
+        self.data.slice_to_cow(range)
     }
 
     pub fn offset_to_position(&self, offset: usize, tab_width: usize) -> Position {

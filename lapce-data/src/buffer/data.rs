@@ -1,14 +1,16 @@
+use lapce_core::indent::IndentStyle;
 use lapce_rpc::buffer::BufferId;
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::ops::Range;
 use std::sync::atomic::{self, AtomicU64};
 use std::{collections::BTreeSet, sync::Arc};
 use xi_rope::Delta;
 use xi_rope::{multiset::Subset, rope::Rope, DeltaBuilder, RopeDelta};
 
 use crate::buffer::{
-    shuffle, shuffle_tombstones, BufferContent, Contents, EditType, InvalLines,
-    Revision,
+    shuffle, shuffle_tombstones, str_col, BufferContent, Contents, EditType,
+    InvalLines, Revision, WordCursor,
 };
 use crate::movement::Selection;
 
@@ -42,6 +44,7 @@ pub struct BufferData {
     pub(super) tombstones: Rope,
 
     pub(super) last_edit_type: EditType,
+    pub(super) indent_style: IndentStyle,
 }
 
 impl BufferData {
@@ -51,6 +54,49 @@ impl BufferData {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn indent_unit(&self) -> &'static str {
+        self.indent_style.as_str()
+    }
+
+    pub fn slice_to_cow(&self, range: Range<usize>) -> Cow<str> {
+        self.rope
+            .slice_to_cow(range.start.min(self.len())..range.end.min(self.len()))
+    }
+
+    pub fn offset_to_line_col(
+        &self,
+        offset: usize,
+        tab_width: usize,
+    ) -> (usize, usize) {
+        let max = self.len();
+        let offset = if offset > max { max } else { offset };
+        let line = self.line_of_offset(offset);
+        let line_start = self.offset_of_line(line);
+        if offset == line_start {
+            return (line, 0);
+        }
+
+        let col = str_col(&self.slice_to_cow(line_start..offset), tab_width);
+        (line, col)
+    }
+
+    pub fn line_of_offset(&self, offset: usize) -> usize {
+        let max = self.len();
+        let offset = if offset > max { max } else { offset };
+        self.rope.line_of_offset(offset)
+    }
+
+    pub fn first_non_blank_character_on_line(&self, line: usize) -> usize {
+        let last_line = self.last_line();
+        let line = if line > last_line + 1 {
+            last_line
+        } else {
+            line
+        };
+        let line_start_offset = self.rope.offset_of_line(line);
+        WordCursor::new(&self.rope, line_start_offset).next_non_blank_char()
     }
 
     pub(super) fn mk_new_rev(
@@ -313,12 +359,6 @@ impl BufferData {
         self.rope.offset_of_line(line)
     }
 
-    pub fn line_of_offset(&self, offset: usize) -> usize {
-        let max = self.len();
-        let offset = if offset > max { max } else { offset };
-        self.rope.line_of_offset(offset)
-    }
-
     pub fn line_len(&self, line: usize) -> usize {
         self.offset_of_line(line + 1) - self.offset_of_line(line)
     }
@@ -374,6 +414,30 @@ impl<L: BufferDataListener> EditableBufferData<'_, L> {
 
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
+    }
+
+    pub fn indent_unit(&self) -> &'static str {
+        self.buffer.indent_unit()
+    }
+
+    pub fn offset_of_line(&self, line: usize) -> usize {
+        self.buffer.offset_of_line(line)
+    }
+
+    pub fn offset_to_line_col(
+        &self,
+        offset: usize,
+        tab_width: usize,
+    ) -> (usize, usize) {
+        self.buffer.offset_to_line_col(offset, tab_width)
+    }
+
+    pub fn line_of_offset(&self, offset: usize) -> usize {
+        self.buffer.line_of_offset(offset)
+    }
+
+    pub fn first_non_blank_character_on_line(&self, line: usize) -> usize {
+        self.buffer.first_non_blank_character_on_line(line)
     }
 
     pub fn edit_multiple(
