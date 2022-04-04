@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::sync::atomic::{self, AtomicU64};
 use std::{collections::BTreeSet, sync::Arc};
-use xi_rope::Delta;
 use xi_rope::{multiset::Subset, rope::Rope, DeltaBuilder, RopeDelta};
+use xi_rope::{Cursor, Delta};
 
 use crate::buffer::{
     shuffle, shuffle_tombstones, str_col, BufferContent, Contents, EditType,
@@ -86,6 +86,53 @@ impl BufferData {
         let max = self.len();
         let offset = if offset > max { max } else { offset };
         self.rope.line_of_offset(offset)
+    }
+
+    pub fn line_content(&self, line: usize) -> Cow<str> {
+        self.slice_to_cow(self.offset_of_line(line)..self.offset_of_line(line + 1))
+    }
+
+    pub fn line_end_offset(&self, line: usize, caret: bool) -> usize {
+        let mut offset = self.offset_of_line(line + 1);
+        let mut line_content: &str = &self.line_content(line);
+        if line_content.ends_with("\r\n") {
+            offset -= 2;
+            line_content = &line_content[..line_content.len() - 2];
+        } else if line_content.ends_with('\n') {
+            offset -= 1;
+            line_content = &line_content[..line_content.len() - 1];
+        }
+        if !caret && !line_content.is_empty() {
+            offset = self.prev_grapheme_offset(offset, 1, 0);
+        }
+        offset
+    }
+
+    pub fn prev_grapheme_offset(
+        &self,
+        offset: usize,
+        count: usize,
+        limit: usize,
+    ) -> usize {
+        let mut cursor = Cursor::new(&self.rope, offset);
+        let mut new_offset = offset;
+        for _i in 0..count {
+            if let Some(prev_offset) = cursor.prev_grapheme() {
+                if prev_offset < limit {
+                    return new_offset;
+                }
+                new_offset = prev_offset;
+                cursor.set(prev_offset);
+            } else {
+                return new_offset;
+            }
+        }
+        new_offset
+    }
+
+    pub fn offset_line_end(&self, offset: usize, caret: bool) -> usize {
+        let line = self.line_of_offset(offset);
+        self.line_end_offset(line, caret)
     }
 
     pub fn first_non_blank_character_on_line(&self, line: usize) -> usize {
@@ -422,6 +469,10 @@ impl<L: BufferDataListener> EditableBufferData<'_, L> {
 
     pub fn offset_of_line(&self, line: usize) -> usize {
         self.buffer.offset_of_line(line)
+    }
+
+    pub fn offset_line_end(&self, offset: usize, caret: bool) -> usize {
+        self.buffer.offset_line_end(offset, caret)
     }
 
     pub fn offset_to_line_col(
